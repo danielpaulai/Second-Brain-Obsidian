@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  /* shadcn theme tokens, ink-palette derived */
+  --background: 240 17% 5%;          /* ink-950 */
+  --foreground: 0 0% 96%;
+  --card: 240 18% 7%;                /* ink-900 */
+  --card-foreground: 0 0% 96%;
+  --popover: 240 18% 9%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 262 83% 70%;            /* accent-400 */
+  --primary-foreground: 240 17% 5%;
+  --secondary: 240 18% 13%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 240 18% 11%;
+  --muted-foreground: 240 5% 60%;
+  --accent: 262 83% 70%;
+  --accent-foreground: 240 17% 5%;
+  --destructive: 0 80% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 8% 18%;
+  --input: 240 8% 18%;
+  --ring: 262 83% 65%;
+  --radius: 0.6rem;
+}
+
+html, body { height: 100%; }
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+
+/* Moving-border conic-gradient animation for active agent */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes spin-angle {
+  to { --angle: 360deg; }
+}
+
+.moving-border {
+  position: relative;
+  isolation: isolate;
+}
+.moving-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--angle), transparent 70%, rgba(167,139,250,0.95) 80%, rgba(217,70,239,0.95) 90%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: spin-angle 2.6s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}

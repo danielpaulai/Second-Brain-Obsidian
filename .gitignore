@@ -1,0 +1,11 @@
+node_modules
+.next
+.env*.local
+.DS_Store
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+.brain-index/
+.calendar-watcher-state.json
+.librarian-state.json
+scripts/.distill-batch-build.json

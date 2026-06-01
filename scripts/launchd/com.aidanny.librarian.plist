@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Librarian agent — nightly vault→SQL sync.
+  Runs at 02:00 every night, keeps the structured brain up to date.
+
+  Install:
+    cp scripts/launchd/com.aidanny.librarian.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.aidanny.librarian.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.aidanny.librarian.plist
+    rm ~/Library/LaunchAgents/com.aidanny.librarian.plist
+
+  Run now (test):
+    launchctl start com.aidanny.librarian
+
+  View logs:
+    tail -f /tmp/librarian.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.aidanny.librarian</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/danielpaul/Documents/Second Brain Obsidian App/scripts/librarian.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/danielpaul/Documents/Second Brain Obsidian App</string>
+
+  <!-- Run at 02:00 every night -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Run if we missed a scheduled start (e.g. laptop was asleep) -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/librarian.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/librarian.log</string>
+
+  <!-- Restart on crash -->
+  <key>KeepAlive</key>
+  <false/>
+</dict>
+</plist>

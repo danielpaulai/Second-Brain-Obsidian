@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  AI Danny meeting sync — runs every 30 minutes on macOS.
+
+  Install:
+    1. Copy this file to ~/Library/LaunchAgents/com.aidanny.sync.plist
+       (replace PROJECT_PATH and NODE_PATH first — see below)
+    2. launchctl load ~/Library/LaunchAgents/com.aidanny.sync.plist
+    3. (optional) launchctl start com.aidanny.sync   # fires once immediately
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.aidanny.sync.plist
+
+  Find your node path:
+    which node     →  e.g. /Users/danielpaul/.nvm/versions/node/v22.6.0/bin/node
+                       or  /usr/local/bin/node
+                       or  /opt/homebrew/bin/node
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.aidanny.sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <!-- These paths are pre-filled for your system (homebrew node + this project) -->
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/danielpaul/Documents/Second Brain Obsidian App/scripts/sync-meetings.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/danielpaul/Documents/Second Brain Obsidian App</string>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Logs (review with: tail -f ~/Library/Logs/ai-danny-sync.out.log) -->
+  <key>StandardOutPath</key>
+  <string>/Users/danielpaul/Library/Logs/ai-danny-sync.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/danielpaul/Library/Logs/ai-danny-sync.err.log</string>
+
+  <!-- Don't wake the machine for this; only run when laptop is awake. -->
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+</dict>
+</plist>

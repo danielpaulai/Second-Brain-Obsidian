@@ -44,7 +44,12 @@ function noteIdFromPath(p: string) {
 }
 
 export async function readVault(): Promise<VaultNote[]> {
-  if (!VAULT_PATH) throw new Error("VAULT_PATH not set");
+  if (VAULT_PATH) return readVaultFromDisk();
+  if (process.env.BLOB_READ_WRITE_TOKEN) return readVaultFromBlob();
+  throw new Error("VAULT_PATH not set");
+}
+
+async function readVaultFromDisk(): Promise<VaultNote[]> {
   const files = await walk(VAULT_PATH, VAULT_PATH);
   const notes: VaultNote[] = [];
   for (const file of files) {
@@ -72,6 +77,60 @@ export async function readVault(): Promise<VaultNote[]> {
     } catch {
       // skip unreadable
     }
+  }
+  return notes;
+}
+
+async function readVaultFromBlob(): Promise<VaultNote[]> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN!;
+  const { list } = await import("@vercel/blob");
+  // Paginate through all vault/*.md blobs
+  const allBlobs: Array<{ pathname: string; url: string; size: number; uploadedAt: Date }> = [];
+  let cursor: string | undefined;
+  do {
+    const page = await list({ prefix: "vault/", token, limit: 1000, cursor });
+    allBlobs.push(...page.blobs);
+    cursor = page.cursor;
+  } while (cursor);
+
+  const notes: VaultNote[] = [];
+  // Fetch in parallel batches to keep memory + connections in check
+  const BATCH = 25;
+  for (let i = 0; i < allBlobs.length; i += BATCH) {
+    const slice = allBlobs.slice(i, i + BATCH);
+    const results = await Promise.all(
+      slice.map(async (b) => {
+        const rel = b.pathname.replace(/^vault\//, "");
+        if (!rel.endsWith(".md")) return null;
+        if (isExcluded(rel)) return null;
+        try {
+          const res = await fetch(b.url);
+          if (!res.ok) return null;
+          const raw = await res.text();
+          const { data, content } = matter(raw);
+          const folder = path.dirname(rel);
+          const title = path.basename(rel, ".md");
+          const links = [...content.matchAll(WIKILINK)].map((m) => m[1].trim());
+          const inlineTags = [...content.matchAll(TAG)].map((m) => m[1]);
+          const fmTags = Array.isArray(data.tags) ? data.tags.map(String) : [];
+          const note: VaultNote = {
+            id: noteIdFromPath(rel),
+            path: rel,
+            title,
+            folder: folder === "." ? "(root)" : folder,
+            body: content,
+            tags: [...new Set([...fmTags, ...inlineTags])],
+            links,
+            size: raw.length,
+            mtime: b.uploadedAt.getTime(),
+          };
+          return note;
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const n of results) if (n) notes.push(n);
   }
   return notes;
 }

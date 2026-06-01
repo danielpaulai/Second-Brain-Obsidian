@@ -12,10 +12,15 @@
 
 import * as lancedb from "@lancedb/lancedb";
 import path from "node:path";
+import os from "node:os";
 import { embed, embedOne } from "./embeddings";
 import { readVault, type VaultNote } from "./vault";
 
-const INDEX_DIR = path.resolve(process.cwd(), ".brain-index");
+// On Vercel (serverless), process.cwd() is read-only — use /tmp instead.
+// Locally, store alongside the project so the index persists across dev restarts.
+const INDEX_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), "brain-index")
+  : path.resolve(process.cwd(), ".brain-index");
 const TABLE_NAME = "notes";
 const EMBED_TEXT_LIMIT = 18000; // ~4500 tokens — fits well under text-embedding-3-small's 8191 limit
 

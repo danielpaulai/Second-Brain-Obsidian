@@ -8,7 +8,7 @@ export default {
     container: { center: true, padding: "2rem", screens: { "2xl": "1400px" } },
     extend: {
       colors: {
-        ink: { 950: "#0a0a0f", 900: "#0f0f17", 800: "#15151f", 700: "#1f1f2e" },
+        ink: { 950: "#08070f", 900: "#0e0c19", 800: "#15131f", 700: "#1e1b2c" },
         accent: {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",

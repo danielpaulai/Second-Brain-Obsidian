@@ -28,6 +28,7 @@ import {
 } from "@/lib/memories";
 import { buildBrainTools } from "@/lib/brain-tools";
 import { buildBrainWriteTools } from "@/lib/brain-write-tools";
+import { buildLinkedInTools } from "@/lib/linkedin-tool";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -35,7 +36,7 @@ export const maxDuration = 60;
 // TODO: when we upgrade to AI SDK v6, switch to `@ai-sdk/gateway` to route via
 // Vercel AI Gateway using AI_GATEWAY_API_KEY for observability + model fallback.
 function pickModel() {
-  const id = process.env.AI_MODEL || "anthropic/claude-sonnet-4-6";
+  const id = process.env.AI_MODEL || "openai/gpt-5.5";
   const [provider, ...rest] = id.split("/");
   const model = rest.join("/");
   if (provider === "openai") {
@@ -106,7 +107,8 @@ REASONING LOOP — follow this sequence:
    - \`addDecisionRule\` — "from now on when X, I'll Y", "my rule is...", "I've decided..."
    Before calling any write tool, briefly confirm what you're about to write. After writing, confirm what was saved.
 6. Synthesize an answer that: (a) sounds in Daniel's voice from <voice>, (b) applies a relevant framework from <frameworks>, (c) cites the actual notes used as [[Title]], (d) rejects every phrase in <do-not-say>.
-7. Default to short answers. Long enough to land, short enough to read in 20 seconds.`;
+7. Default to short answers. Long enough to land, short enough to read in 20 seconds.
+8. If Daniel asks to check / scrape / review his LinkedIn, what to post next, a content idea, or a new LinkedIn post, call \`suggestLinkedInPost\`. Present the returned \`post\` verbatim (optionally one short framing sentence first) — do NOT rewrite it.`;
 
   const system = [preamble, agent.system + reasoningRules].filter(Boolean).join("\n\n");
 
@@ -311,6 +313,7 @@ REASONING LOOP — follow this sequence:
       }),
       ...buildBrainTools(viewerRole),
       ...buildBrainWriteTools(viewerRole, currentUser?.id ?? null),
+      ...buildLinkedInTools(),
     },
     maxSteps: 10,
   });

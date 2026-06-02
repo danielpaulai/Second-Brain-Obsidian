@@ -5,24 +5,24 @@
 :root {
   color-scheme: dark;
   /* shadcn theme tokens, ink-palette derived */
-  --background: 240 17% 5%;          /* ink-950 */
+  --background: 245 38% 4%;          /* ink-950 — deep indigo-black */
   --foreground: 0 0% 96%;
-  --card: 240 18% 7%;                /* ink-900 */
+  --card: 244 30% 7%;                /* ink-900 */
   --card-foreground: 0 0% 96%;
-  --popover: 240 18% 9%;
+  --popover: 244 26% 9%;
   --popover-foreground: 0 0% 96%;
   --primary: 262 83% 70%;            /* accent-400 */
-  --primary-foreground: 240 17% 5%;
-  --secondary: 240 18% 13%;
+  --primary-foreground: 245 38% 4%;
+  --secondary: 244 22% 13%;
   --secondary-foreground: 0 0% 96%;
-  --muted: 240 18% 11%;
-  --muted-foreground: 240 5% 60%;
+  --muted: 244 22% 11%;
+  --muted-foreground: 240 7% 63%;
   --accent: 262 83% 70%;
-  --accent-foreground: 240 17% 5%;
+  --accent-foreground: 245 38% 4%;
   --destructive: 0 80% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 240 8% 18%;
-  --input: 240 8% 18%;
+  --border: 244 13% 17%;
+  --input: 244 13% 17%;
   --ring: 262 83% 65%;
   --radius: 0.6rem;
 }
@@ -68,4 +68,31 @@ body {
   animation: spin-angle 2.6s linear infinite;
   pointer-events: none;
   z-index: -1;
+}
+
+/* ── Brain visualization: glass HUD + ambient motion (Synaptic Bloom) ── */
+
+/* Shared frosted-glass token for the HUD panels + node tooltip */
+.glass {
+  background: rgba(10, 10, 15, 0.55);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 0 40px rgba(99, 102, 241, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Ambient aurora-blob drift (CSS blob fallbacks / 3D backdrop accents) */
+@keyframes blob-drift-a { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3%, -4%); } }
+@keyframes blob-drift-b { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-4%, 3%); } }
+.blob-a { animation: blob-drift-a 42s ease-in-out infinite; }
+.blob-b { animation: blob-drift-b 54s ease-in-out infinite; }
+
+/* Breathing accent dot used in the HUD identity row */
+@keyframes dot-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.08); } }
+.dot-breathe { animation: dot-breathe 3.2s ease-in-out infinite; }
+
+/* Reduced-motion kill switch */
+@media (prefers-reduced-motion: reduce) {
+  .blob-a, .blob-b, .dot-breathe, .moving-border::before { animation: none !important; }
 }

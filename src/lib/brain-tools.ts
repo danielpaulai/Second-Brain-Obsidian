@@ -27,8 +27,18 @@ export function buildBrainTools(viewerRole: ViewerRole) {
         if (ownerOnly) {
           return { refused: "The structured database is only queryable by the owner." };
         }
-        const schema = await describeBrain();
-        return { schema };
+        try {
+          const schema = await describeBrain();
+          return { schema };
+        } catch (err) {
+          // Degrade gracefully (e.g. Supabase not configured) instead of aborting the stream.
+          return {
+            ok: false,
+            unavailable: true,
+            error: err instanceof Error ? err.message : String(err),
+            hint: "The structured database isn't available in this environment. Use queryBrain or queryKnowledge instead — they query the vault directly.",
+          };
+        }
       },
     }),
 
@@ -54,7 +64,17 @@ export function buildBrainTools(viewerRole: ViewerRole) {
               "Direct database access is owner-only. For team/public, use queryKnowledge / queryBrain.",
           };
         }
-        const result = await aiQuery(sql);
+        let result: Awaited<ReturnType<typeof aiQuery>>;
+        try {
+          result = await aiQuery(sql);
+        } catch (err) {
+          return {
+            ok: false,
+            unavailable: true,
+            error: err instanceof Error ? err.message : String(err),
+            hint: "The structured database isn't available in this environment. Use queryBrain or queryKnowledge instead.",
+          };
+        }
         if (!result.ok) {
           return { ok: false, error: result.error, hint: "Check table/column names with describeBrain." };
         }

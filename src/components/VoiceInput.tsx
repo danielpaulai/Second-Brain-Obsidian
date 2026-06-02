@@ -4,13 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Microphone, Stop, Spinner, X } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import {
-  loadWhisper,
-  transcribe,
-  getMicrophoneStream,
-  isWhisperSupported,
-  type LoadProgress,
-} from "@/lib/voice";
+import { getMicrophoneStream, isWhisperSupported } from "@/lib/voice";
+import { transcribeAudio } from "@/lib/stt";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -54,24 +49,7 @@ export default function VoiceInput({ onTranscript, disabled, variant = "inline" 
       toast.error("Voice input not supported in this browser");
       return;
     }
-    // 1. Preload the model (cached after first time) — fast on subsequent calls
-    setState("loading-model");
-    setLoadPct(0);
-    try {
-      await loadWhisper((p: LoadProgress) => {
-        if (p.status === "downloading" && typeof p.progress === "number") {
-          setLoadPct(Math.round(p.progress));
-        }
-      });
-    } catch (err) {
-      console.error(err);
-      toast.error("Couldn't load voice model. Try refreshing.");
-      setState("idle");
-      return;
-    }
-    setLoadPct(null);
-
-    // 2. Get mic
+    // Get mic (transcription runs server-side; nothing to preload)
     let stream: MediaStream;
     try {
       stream = await getMicrophoneStream();
@@ -107,7 +85,7 @@ export default function VoiceInput({ onTranscript, disabled, variant = "inline" 
       }
       setState("transcribing");
       try {
-        const text = await transcribe(blob);
+        const text = await transcribeAudio(blob);
         if (text?.trim()) {
           onTranscript(text.trim());
         } else {

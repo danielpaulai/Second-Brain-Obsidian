@@ -12,20 +12,26 @@ import { AGENTS, type AgentId } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 import { sounds } from "@/lib/sounds";
 import { usePresentation } from "@/lib/presentation-store";
+import { useVoice } from "@/lib/voice-store";
+import { speak } from "@/lib/tts";
 import {
   submitThump,
   startThinkingSwell,
   stopThinkingSwell,
   replyChime,
 } from "@/lib/cinema-audio";
-import { celebrateReply } from "@/lib/confetti";
 import ThinkingPulse from "@/components/ThinkingPulse";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import VoiceInput from "@/components/VoiceInput";
 
 type Props = {
+  /** CITED notes — the [[wikilinks]] the answer actually used. Fired once at the end (emphasis). */
   onBrainQuery: (noteTitles: string[]) => void;
+  /** RETRIEVED notes — fired live as each brain tool call resolves (the "actively querying" moment). */
+  onResearch?: (noteTitles: string[]) => void;
+  /** A new query has begun — reset highlight/ignition state. */
+  onQueryStart?: () => void;
   agent: AgentId;
   onAgentChange: (a: AgentId) => void;
 };
@@ -35,37 +41,116 @@ export type ChatPanelHandle = {
 };
 
 const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
-  { onBrainQuery, agent, onAgentChange },
+  { onBrainQuery, onResearch, onQueryStart, agent, onAgentChange },
   ref
 ) {
   const presentationOn = usePresentation((s) => s.on);
+  const stageOn = usePresentation((s) => s.mode === "stage");
   const lastStreamLenRef = useRef(0);
+  const seenTools = useRef<Set<string>>(new Set());
+  const prevLoading = useRef(false);
   const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append } =
     useChat({
       api: "/api/chat",
       body: { agentId: agent },
       onFinish: (msg) => {
-        const toolHits = (msg.toolInvocations || []).flatMap((t: any) =>
-          t.result?.results?.map((r: any) => r.title) || []
+        // CITED notes = the [[wikilinks]] the model actually used (fallback: retrieved hits).
+        const text = typeof msg.content === "string" ? msg.content : "";
+        const cited = [...text.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) =>
+          m[1].split("|")[0].split("#")[0].trim()
         );
-        if (toolHits.length) onBrainQuery(toolHits);
+        const toolHits = (msg.toolInvocations || []).flatMap((t: any) =>
+          t.result?.results?.map((r: any) => r.title) || (t.result?.title ? [t.result.title] : [])
+        );
+        const finalCited = cited.length ? cited : toolHits;
+        const stage = usePresentation.getState().mode === "stage";
         sounds.reply();
         if (presentationOn) {
           void stopThinkingSwell();
           void replyChime();
-          // Subtle confetti burst from the brain center on every stage-mode reply
-          celebrateReply(0.32, 0.55);
         }
-        const agentName = AGENTS[agent].name;
-        toast.success(`${agentName} replied`, {
+        lastStreamLenRef.current = 0;
+
+        if (stage) {
+          // Buffer the answer — StageReadthrough reveals it (and speaks it) only AFTER the
+          // node read-through has played out, so the answer never races the retrieval.
+          usePresentation.getState().setPendingAnswer(text);
+          useVoice.getState().setSpeakNext(false); // StageAnswer owns the speech on stage
+          return;
+        }
+
+        // Live: light the cited notes, toast, and speak if this came from push-to-talk.
+        onBrainQuery(finalCited);
+        toast.success(`${AGENTS[agent].name} replied`, {
           description:
-            toolHits.length > 0
-              ? `Cited ${toolHits.length} note${toolHits.length === 1 ? "" : "s"} from your brain`
+            finalCited.length > 0
+              ? `Cited ${finalCited.length} note${finalCited.length === 1 ? "" : "s"} from your brain`
               : "From context",
         });
-        lastStreamLenRef.current = 0;
+        const v = useVoice.getState();
+        if (v.speakNext) {
+          v.setSpeakNext(false);
+          v.setPhase("speaking");
+          void speak(text, {
+            onEnded: () => useVoice.getState().setPhase("idle"),
+            onError: () => useVoice.getState().setPhase("idle"),
+          });
+        }
+      },
+      onError: () => {
+        // Never leave the voice HUD stuck on "thinking" if the request fails.
+        const v = useVoice.getState();
+        v.setSpeakNext(false);
+        if (v.phase === "thinking" || v.phase === "transcribing") v.setPhase("idle");
+        // Stage: unblock the read-through / LinkedIn theater (they wait on a buffered answer).
+        const p = usePresentation.getState();
+        if (p.mode === "stage" && p.querying && p.pendingAnswer == null) {
+          p.setPendingAnswer("Sorry — I hit a snag pulling that together. Mind asking again?");
+        }
       },
     });
+
+  // A new query started → reset per-turn ignition bookkeeping. On stage, a LinkedIn
+  // "scrape" question runs the post-card theater instead of the normal read-through.
+  useEffect(() => {
+    if (isLoading && !prevLoading.current) {
+      seenTools.current.clear();
+      lastStreamLenRef.current = 0;
+      if (usePresentation.getState().mode === "stage") {
+        const lastUser = [...messages].reverse().find((m) => m.role === "user");
+        const txt = (lastUser?.content ?? "").toLowerCase();
+        const isLinkedIn =
+          /linked\s?in/.test(txt) &&
+          /(scrape|check|review|look|post|content|publish|next|idea|analy)/.test(txt);
+        if (isLinkedIn) usePresentation.getState().startLinkedInScrape();
+        else usePresentation.getState().startQuery();
+      }
+      onQueryStart?.();
+    }
+    prevLoading.current = isLoading;
+  }, [isLoading, onQueryStart, messages]);
+
+  // As brain tool calls RESOLVE, collect the retrieved note titles. On stage they're
+  // QUEUED for a paced read-through (StageReadthrough reveals them one at a time, lighting
+  // one node + showing one card per beat); in the live view they light immediately.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || !last.toolInvocations) return;
+    const fresh: string[] = [];
+    for (const t of last.toolInvocations as any[]) {
+      if (t.state !== "result" || !t.toolCallId || seenTools.current.has(t.toolCallId)) continue;
+      seenTools.current.add(t.toolCallId);
+      const titles = Array.isArray(t.result?.results)
+        ? t.result.results.map((r: any) => r?.title).filter(Boolean)
+        : t.result?.title
+          ? [t.result.title]
+          : [];
+      fresh.push(...titles);
+    }
+    if (!fresh.length) return;
+    if (stageOn) usePresentation.getState().enqueueReads(fresh);
+    else onResearch?.(fresh);
+  }, [messages, onResearch, stageOn]);
 
   // Stage-mode thinking swell — starts when isLoading goes true, stops on finish
   useEffect(() => {
@@ -74,7 +159,8 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     else void stopThinkingSwell();
   }, [isLoading, presentationOn]);
 
-  // Stage-mode chime cadence: chime on sentence boundary + ping on each [[wikilink]]
+  // Stage-mode audio cadence as the answer streams: chime on sentence boundary,
+  // ping on each [[wikilink]]. (Node lighting is driven by tool results, not text.)
   useEffect(() => {
     if (!presentationOn) return;
     const last = messages[messages.length - 1];
@@ -84,13 +170,12 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     if (text.length <= prev) return;
     const delta = text.slice(prev);
     lastStreamLenRef.current = text.length;
-    // chime on sentence boundary (., !, ?) followed by space or end
-    if (/[.!?](\s|$)/.test(delta)) sounds.cinematicChime();
-    // ping on each new wikilink that streamed in
+
     const linkMatches = delta.match(/\[\[[^\]]+\]\]/g);
-    if (linkMatches) {
-      linkMatches.forEach((_, i) => setTimeout(() => sounds.citeNote(), i * 80));
-    }
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    if (/[.!?](\s|$)/.test(delta)) sounds.cinematicChime();
+    if (linkMatches) linkMatches.forEach((_, i) => timers.push(setTimeout(() => sounds.citeNote(), i * 80)));
+    return () => { for (const t of timers) clearTimeout(t); };
   }, [messages, presentationOn]);
 
   useImperativeHandle(ref, () => ({

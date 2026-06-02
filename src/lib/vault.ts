@@ -104,7 +104,9 @@ async function readVaultFromBlob(): Promise<VaultNote[]> {
         if (!rel.endsWith(".md")) return null;
         if (isExcluded(rel)) return null;
         try {
-          const res = await fetch(b.url);
+          const res = await fetch(b.url, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           if (!res.ok) return null;
           const raw = await res.text();
           const { data, content } = matter(raw);
@@ -226,7 +228,10 @@ export async function readGraphFromBlob(): Promise<(BrainGraph & { noteCount: nu
     const token = process.env.BLOB_READ_WRITE_TOKEN!;
     const { blobs } = await list({ prefix: "vault/_graph.json", token, limit: 1 });
     if (!blobs.length) return null;
-    const res = await fetch(blobs[0].url, { cache: "no-store" });
+    const res = await fetch(blobs[0].url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     return await res.json();
   } catch {

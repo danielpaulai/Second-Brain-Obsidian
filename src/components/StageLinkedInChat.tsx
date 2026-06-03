@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Check, LinkedinLogo, ChartBar } from "@phosphor-icons/react";
 import { usePresentation } from "@/lib/presentation-store";
+import { sounds } from "@/lib/sounds";
 import { parseLinkedInScope } from "@/lib/linkedin-scope";
 import { cn } from "@/lib/utils";
 import LinkedInReport, { type LinkedInReportData } from "./LinkedInReport";
@@ -43,6 +44,10 @@ function Chat({ runId }: { runId: number }) {
   const intro = isRerun ? `On it — re-cutting that for ${scope.label}.` : INTRO;
   const scrapeMs = isRerun ? 9_000 : SCRAPE_MS;
   const [phase, setPhase] = useState<Phase>("intro");
+  // Phase-transition cue: scrape, analyze, and the report appearing each get the notification tick.
+  useEffect(() => {
+    if (phase === "scrape" || phase === "analyze" || phase === "report") sounds.notify();
+  }, [phase]);
   const [progress, setProgress] = useState(0); // 0..1
   const [report, setReport] = useState<LinkedInReportData | null>(null);
   const reportRef = useRef<LinkedInReportData | null>(null);

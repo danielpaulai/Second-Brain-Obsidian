@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
+import { anthropicFetch } from "@/lib/anthropic-fetch";
 import { getIdentityContext, buildIdentityPreamble, hybridSearch } from "@/lib/vault";
 import { getSkill } from "@/lib/skills";
 import { aiQuery } from "@/lib/structured";
@@ -19,6 +20,7 @@ function pickModel() {
   const [provider, ...rest] = id.split("/");
   const model = rest.join("/");
   if (provider === "openai") return openai(model || "gpt-4o");
+  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY, fetch: anthropicFetch });
   return anthropic(model || "claude-sonnet-4-6");
 }
 

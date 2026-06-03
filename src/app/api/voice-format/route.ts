@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { anthropicFetch } from "@/lib/anthropic-fetch";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -23,7 +24,7 @@ function pickModel() {
     const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
     return openai(model || "gpt-5.5");
   }
-  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY, fetch: anthropicFetch });
   return anthropic(model || "claude-sonnet-4-6");
 }
 

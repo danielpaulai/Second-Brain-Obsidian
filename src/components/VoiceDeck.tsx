@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Microphone, CircleNotch, SpeakerHigh } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import { getMicrophoneStream, isWhisperSupported, loadWhisper } from "@/lib/voice";
+import { getMicrophoneStream, isWhisperSupported } from "@/lib/voice";
 import { transcribeAudio } from "@/lib/stt";
 import { stopSpeaking } from "@/lib/tts";
 import { useVoice } from "@/lib/voice-store";
@@ -28,14 +28,10 @@ export default function VoiceDeck({ onSend }: { onSend: (text: string) => void }
   const rafRef = useRef<number | null>(null);
   const startRef = useRef(0);
 
-  // On-device Whisper (in-browser, no API key). Recording is never blocked — transcribe() awaits
-  // the model if it isn't ready yet — but we PRE-WARM it a moment after mount (once the page +
-  // brain graph have settled) so the first stage question doesn't pause on the ~50MB model download.
+  // Transcription runs server-side via OpenAI Whisper (POST /api/stt) — no in-browser model to
+  // download or warm up, so the deck is "ready" the moment it mounts.
   useEffect(() => {
     useVoice.getState().setModelReady(true);
-    if (!isWhisperSupported()) return;
-    const t = setTimeout(() => void loadWhisper().catch(() => {}), 2500);
-    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {

@@ -8,6 +8,7 @@
 import { tool, generateText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { anthropicFetch } from "./anthropic-fetch";
 import { z } from "zod";
 import { LINKEDIN_POSTS, type LinkedInPost } from "./linkedin-data";
 
@@ -19,7 +20,7 @@ function pickModel() {
     const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
     return openai(model || "gpt-4o");
   }
-  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY, fetch: anthropicFetch });
   return anthropic(model || "claude-sonnet-4-6");
 }
 

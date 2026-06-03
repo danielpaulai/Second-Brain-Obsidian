@@ -33,6 +33,12 @@ export const sounds = {
   switchAgent: () => tone(520, 0.06, "triangle", 0.035),
   open: () => tone(420, 0.07, "sine", 0.04),
 
+  /* Very subtle "a card appeared" notification — a soft, quiet two-note tick. */
+  notify: () => {
+    tone(1180, 0.05, "sine", 0.022);
+    setTimeout(() => tone(1560, 0.06, "sine", 0.018), 42);
+  },
+
   /* Stage / cinematic sounds */
   cinematicWhoosh: () => {
     // Glissando from low to high to signal "query firing"
@@ -87,3 +93,19 @@ export const sounds = {
     osc.stop(c.currentTime + 0.25);
   },
 };
+
+/**
+ * Unlock Web Audio on the FIRST user gesture. Browsers create/keep the AudioContext suspended until
+ * a gesture, and our node-hit + notification sounds first fire from the render loop / voice callbacks
+ * (NOT a gesture) — so without this they stay silent in production. Creating + resuming the context
+ * inside a real gesture (the Start click, any key/tap) unlocks it for the whole session.
+ */
+if (typeof window !== "undefined") {
+  const unlock = () => {
+    const c = getCtx(); // creates the context inside the gesture, then resumes it
+    if (c && c.state === "suspended") void c.resume();
+  };
+  for (const ev of ["pointerdown", "keydown", "touchstart"] as const) {
+    window.addEventListener(ev, unlock, { passive: true });
+  }
+}

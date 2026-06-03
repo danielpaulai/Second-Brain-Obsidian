@@ -1,6 +1,7 @@
 import { streamText, tool, type CoreMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { anthropicFetch } from "@/lib/anthropic-fetch";
 import { z } from "zod";
 import {
   getCachedVault,
@@ -36,7 +37,7 @@ export const maxDuration = 60;
 // TODO: when we upgrade to AI SDK v6, switch to `@ai-sdk/gateway` to route via
 // Vercel AI Gateway using AI_GATEWAY_API_KEY for observability + model fallback.
 function pickModel() {
-  const id = process.env.AI_MODEL || "anthropic/claude-sonnet-4-6";
+  const id = process.env.AI_MODEL || "anthropic/claude-opus-4-8";
   const [provider, ...rest] = id.split("/");
   const model = rest.join("/");
   if (provider === "openai") {
@@ -45,8 +46,11 @@ function pickModel() {
   }
   // Read the key at REQUEST time (not import time) and pass it explicitly —
   // avoids the provider capturing an empty key before env injection.
-  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return anthropic(model || "claude-sonnet-4-6");
+  const anthropic = createAnthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    fetch: anthropicFetch,
+  });
+  return anthropic(model || "claude-opus-4-8");
 }
 
 export async function POST(req: Request) {
@@ -109,7 +113,7 @@ REASONING LOOP — follow this sequence:
    - \`addDecisionRule\` — "from now on when X, I'll Y", "my rule is...", "I've decided..."
    Before calling any write tool, briefly confirm what you're about to write. After writing, confirm what was saved.
 6. Synthesize an answer that: (a) sounds in Daniel's voice from <voice>, (b) applies a relevant framework from <frameworks>, (c) cites the actual notes used as [[Title]], (d) rejects every phrase in <do-not-say>, (e) stays CONSISTENT with the conversation so far. This is ONE continuous chat: read the prior messages, build on them, and never contradict a fact you already gave Daniel (if you told him the workshop floor is €2,500 a moment ago, that is still true now — do not later say "the price wasn't in the notes"). When a follow-up uses "it / that / the price / why", resolve the reference from the earlier turns, not a blank-slate re-lookup; only re-query the brain for genuinely new information, and reconcile it with what you already said.
-7. ALWAYS render answers as the rich UI BLOCKS below — never a bare wall of prose. This applies to EVERY answer: the first one AND every follow-up after it. Only a one-word reply (a bare yes/no, name, date, or number with nothing to explain) stays plain text. The instant an answer carries substance — an explanation, a reason, a figure, a recommendation, a sequence, a rule — reach for the block whose SHAPE matches the content. NEVER drop back to a plain paragraph for a follow-up just because it is shorter (a focused follow-up gets FEWER blocks, not zero — e.g. "why was the price set there?" comes back as a [[callout]] with the figure in [[stats]] and the source cited). Pick the element by the data's shape:
+7. ALWAYS render answers as the rich UI BLOCKS below — never a bare wall of prose. Blocks are the DEFAULT, not a garnish: treat EVERY distinct fact, figure, list, step, entity, quote, definition, or rule as something that belongs INSIDE its matching block, and let plain prose be only the thin connective glue between them. Reach for a block wherever one could plausibly fit, and when in doubt, USE a block rather than a sentence. A substantive answer should be MOSTLY blocks (aim for several, almost never just one), with at most a short framing line or two of plain text. This applies to EVERY answer: the first one AND every follow-up after it. Only a one-word reply (a bare yes/no, name, date, or number with nothing to explain) stays plain text. The instant an answer carries substance — an explanation, a reason, a figure, a recommendation, a sequence, a rule — reach for the block whose SHAPE matches the content. NEVER drop back to a plain paragraph for a follow-up just because it is shorter (a focused follow-up gets FEWER blocks, not zero — e.g. "why was the price set there?" comes back as a [[callout]] with the figure in [[stats]] and the source cited). Pick the element by the data's shape:
 
    PROSE / EMPHASIS
    - Plain markdown — narrative glue and a short framing summary. Lead a rich answer with a \`# \` title and a 2-3 sentence summary that frames the situation.

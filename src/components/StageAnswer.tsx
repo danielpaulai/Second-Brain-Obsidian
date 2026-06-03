@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { usePresentation } from "@/lib/presentation-store";
+import { sounds } from "@/lib/sounds";
 import { cn } from "@/lib/utils";
 import { Blocks, parseBlocks } from "./blocks/Blocks";
 
@@ -60,6 +61,12 @@ function BigText({ raw }: { raw: string }) {
   const n = useTypewriter(raw, 3);
   const shown = raw.slice(0, n);
   const done = n >= raw.length;
+  useEffect(() => { sounds.notify(); }, [raw]); // response started generating in the UI
+  const finishedRef = useRef(false);
+  useEffect(() => { finishedRef.current = false; }, [raw]);
+  useEffect(() => {
+    if (done && !finishedRef.current) { finishedRef.current = true; sounds.notify(); } // finished
+  }, [done]);
   return (
     <div className="pointer-events-none absolute inset-y-0 right-[6.5%] z-20 flex w-[42%] max-w-[620px] items-center">
       <motion.div
@@ -107,6 +114,7 @@ function bareFontPx(len: number): number {
 function Document({ raw }: { raw: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const blocks = useMemo(() => parseBlocks(raw), [raw]);
+  useEffect(() => { sounds.notify(); }, [raw]); // response started generating in the UI
   const bare = useMemo(() => blocks.length > 0 && !blocks.some((b) => b.type !== "text"), [blocks]);
   const fontSize = bare ? bareFontPx(raw.length) : 14;
 
@@ -131,7 +139,7 @@ function Document({ raw }: { raw: string }) {
             </div>
             {/* visible streamed copy, overlaid */}
             <div className="absolute inset-0">
-              <Blocks blocks={blocks} stream scrollRef={scrollRef} />
+              <Blocks blocks={blocks} stream onComplete={() => sounds.notify()} scrollRef={scrollRef} />
             </div>
           </div>
         </div>

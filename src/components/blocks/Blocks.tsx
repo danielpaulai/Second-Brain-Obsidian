@@ -894,12 +894,14 @@ function BlockView({
 export function Blocks({
   blocks,
   stream = false,
+  onComplete,
   scrollRef,
   chartFor,
   className,
 }: {
   blocks: Block[];
   stream?: boolean;
+  onComplete?: () => void;
   scrollRef?: RefObject<HTMLElement | null>;
   chartFor?: (name: ChartName, key: number) => ReactNode;
   className?: string;
@@ -908,12 +910,26 @@ export function Blocks({
   const endRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
+  const completedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     setActive(stream ? 0 : blocks.length);
+    completedRef.current = false; // re-arm the completion cue for a new answer
   }, [blocks, stream]);
 
   const advance = useCallback((i: number) => setActive((a) => (i + 1 > a ? i + 1 : a)), []);
+
+  // Fire onComplete ONCE the streamed reveal has fully played out (every block shown) — drives the
+  // "response finished" cue. (Per-element chimes were removed in favour of phase-level cues.)
+  useEffect(() => {
+    if (!stream || completedRef.current) return;
+    if (blocks.length > 0 && active >= blocks.length) {
+      completedRef.current = true;
+      onCompleteRef.current?.();
+    }
+  }, [active, stream, blocks.length]);
 
   // Follow the streaming caret to wherever the revealed content currently ENDS (NOT scrollHeight —
   // StageAnswer's invisible reserve makes scrollHeight the full answer height, which would bottom-pin).

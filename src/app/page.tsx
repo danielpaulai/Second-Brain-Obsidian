@@ -60,6 +60,7 @@ export default function Home() {
   const [prefersReduced, setPrefersReduced] = useState(false);
   const chatRef = useRef<ChatPanelHandle>(null);
   const mode = usePresentation((s) => s.mode);
+  const linkedinActive = usePresentation((s) => s.linkedinActive);
   const woken = usePresentation((s) => s.woken);
   const answer = usePresentation((s) => s.answer);
   const igniteProgressive = usePresentation((s) => s.igniteProgressive);
@@ -319,6 +320,19 @@ export default function Home() {
     setResearchIds((prev) => [...new Set([...prev, ...ids])]);
     setPathwayIds((prev) => [...new Set([...prev, ...ids])]); // fold into the persistent read-circuit
   }, [answer, mode, titleToId, graph]);
+
+  // The LinkedIn report runs its OWN theater — the brain isn't engaged. Clear any leftover lit
+  // pathway/highlights from a prior query so the graph drops back to its ALIVE idle state (free-float
+  // drift + spontaneous synapses) instead of sitting dimmed + frozen behind the report.
+  useEffect(() => {
+    if (mode !== "stage" || !linkedinActive) return;
+    setHighlights([]);
+    setResearchIds([]);
+    setPathwayIds([]);
+    setThinking(false);
+    researchedRef.current.clear();
+    citedRef.current.clear();
+  }, [linkedinActive, mode]);
 
   // Clear pending ignition timers on unmount.
   useEffect(

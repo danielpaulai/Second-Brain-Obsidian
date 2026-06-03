@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { anthropicFetch } from "@/lib/anthropic-fetch";
 import { computeLinkedInStats } from "@/lib/linkedin-analysis";
 import { parseLinkedInScope } from "@/lib/linkedin-scope";
 
@@ -27,7 +28,7 @@ function pickModel(): Picked {
     return { model: openai.responses(model || "gpt-5.5"), providerOptions: { openai: { reasoningEffort: "high" } } };
   }
   // Read the key at REQUEST time (not import time) so env injection is in effect.
-  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY, fetch: anthropicFetch });
   return {
     model: anthropic(model || "claude-sonnet-4-6"),
     // Claude extended thinking — the equivalent "think before answering" pass for a sharper analysis.

@@ -3,14 +3,23 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { EnvelopeSimple, Brain, ArrowRight, CheckCircle, GoogleLogo } from "@phosphor-icons/react";
+import {
+  ArrowRight,
+  Brain,
+  CheckCircle,
+  EnvelopeSimple,
+  GoogleLogo,
+  LockKey,
+} from "@phosphor-icons/react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [created, setCreated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = isSupabaseConfigured() ? createClient() : null;
 
@@ -22,9 +31,7 @@ export default function LoginPage() {
     });
   }, [router, supabase]);
 
-  // Complete an implicit-flow sign-in: a magic link that returns the session in the URL hash
-  // (#access_token=…&refresh_token=…) instead of a PKCE ?code. setSession writes the SSR cookies,
-  // then we bounce home. (The normal emailed link uses PKCE; this covers admin-generated links.)
+  // Complete an implicit-flow sign-in from OAuth providers that return tokens in the URL hash.
   useEffect(() => {
     if (!supabase || typeof window === "undefined") return;
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -41,23 +48,41 @@ export default function LoginPage() {
     });
   }, [supabase, router]);
 
-  async function signInWithEmail(e: React.FormEvent) {
+  async function submitEmailPassword(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase) {
       setError("Supabase not configured");
       return;
     }
-    setSending(true);
+    setSubmitting(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOtp({
+
+    if (mode === "sign-in") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setSubmitting(false);
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      router.replace("/");
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
+      password,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     });
-    setSending(false);
-    if (error) setError(error.message);
-    else setSent(true);
+    setSubmitting(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    if (data.session) {
+      router.replace("/");
+      return;
+    }
+    setCreated(true);
   }
 
   async function signInWithGoogle() {
@@ -96,34 +121,68 @@ export default function LoginPage() {
         </div>
 
         <h1 className="text-center mt-6 text-2xl font-semibold tracking-tight">
-          Sign in to AI Danny
+          {mode === "sign-in" ? "Sign in to AI Danny" : "Create your AI Danny account"}
         </h1>
         <p className="text-center text-sm text-muted-foreground mt-1">
-          Magic link · no password
+          Email and password access
         </p>
 
-        {sent ? (
+        {created ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="mt-8 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-5 text-center"
           >
             <CheckCircle size={28} weight="duotone" className="text-emerald-400 mx-auto mb-2" />
-            <div className="text-sm font-medium text-foreground">Check your email</div>
+            <div className="text-sm font-medium text-foreground">Account created</div>
             <div className="text-xs text-muted-foreground mt-1">
-              We sent a sign-in link to{" "}
-              <span className="text-foreground">{email}</span>
+              If email confirmation is enabled, confirm{" "}
+              <span className="text-foreground">{email}</span> before signing in.
             </div>
             <button
-              onClick={() => setSent(false)}
+              onClick={() => {
+                setCreated(false);
+                setMode("sign-in");
+              }}
               className="mt-3 text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
             >
-              Wrong email?
+              Go to sign in
             </button>
           </motion.div>
         ) : (
           <>
-            <form onSubmit={signInWithEmail} className="mt-8 space-y-3">
+            <div className="mt-8 grid grid-cols-2 rounded-lg border border-border bg-card/40 p-1 text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("sign-in");
+                  setError(null);
+                }}
+                className={`rounded-md py-2 transition ${
+                  mode === "sign-in"
+                    ? "bg-accent-500 text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("sign-up");
+                  setError(null);
+                }}
+                className={`rounded-md py-2 transition ${
+                  mode === "sign-up"
+                    ? "bg-accent-500 text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Sign up
+              </button>
+            </div>
+
+            <form onSubmit={submitEmailPassword} className="mt-4 space-y-3">
               <div className="relative">
                 <EnvelopeSimple
                   size={16}
@@ -138,13 +197,34 @@ export default function LoginPage() {
                   className="w-full rounded-lg border border-border bg-card/60 pl-10 pr-3 py-3 text-sm outline-none focus:border-accent-400/50 placeholder:text-muted-foreground/60"
                 />
               </div>
+              <div className="relative">
+                <LockKey
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full rounded-lg border border-border bg-card/60 pl-10 pr-3 py-3 text-sm outline-none focus:border-accent-400/50 placeholder:text-muted-foreground/60"
+                />
+              </div>
               <button
                 type="submit"
-                disabled={!email || sending}
+                disabled={!email || !password || submitting}
                 className="w-full flex items-center justify-center gap-2 rounded-lg bg-accent-500 hover:bg-accent-400 disabled:bg-ink-700 disabled:text-zinc-600 text-white py-3 text-sm font-medium transition shadow-[0_0_24px_-6px_rgba(167,139,250,0.7)]"
               >
-                {sending ? "Sending…" : "Send magic link"}
-                {!sending && <ArrowRight size={14} weight="bold" />}
+                {submitting
+                  ? mode === "sign-in"
+                    ? "Signing in..."
+                    : "Creating account..."
+                  : mode === "sign-in"
+                    ? "Sign in"
+                    : "Sign up"}
+                {!submitting && <ArrowRight size={14} weight="bold" />}
               </button>
             </form>
 

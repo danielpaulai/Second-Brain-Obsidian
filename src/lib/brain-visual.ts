@@ -132,6 +132,19 @@ function toHex(n: number) {
   return Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
 }
 
+/** Snap each RGB channel to a coarse step so the continuously-mixed colours that drive the lit/flare
+ *  ramps collapse onto a small, bounded set of sprite-cache keys. Without this every ignition frame
+ *  mints a new hex → a new cached <canvas> that's never reused (memory creep + perpetual rebuild
+ *  spikes during a cascade). The step is tiny enough to be imperceptible on soft additive glows/discs. */
+const SPRITE_QUANT = 8;
+export function quantizeHex(hex: string): string {
+  const m = hex.match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const q = (v: number) => Math.min(255, Math.round(v / SPRITE_QUANT) * SPRITE_QUANT);
+  return `#${toHex(q((n >> 16) & 255))}${toHex(q((n >> 8) & 255))}${toHex(q(n & 255))}`;
+}
+
 export function mixHex(a: string, b: string, t: number): string {
   const ca = hexToRgb(a);
   const cb = hexToRgb(b);
@@ -245,6 +258,7 @@ function makeCanvas(size: number): HTMLCanvasElement {
 
 /** Soft additive halo, tinted per folder hue. Drawn under globalCompositeOperation='lighter'. */
 export function getGlowSprite(hex: string): HTMLCanvasElement {
+  hex = quantizeHex(hex); // bound the cache → build each shade once, then reuse
   const cached = glowCache.get(hex);
   if (cached) return cached;
   const S = 64;
@@ -263,6 +277,7 @@ export function getGlowSprite(hex: string): HTMLCanvasElement {
 
 /** Crisp-ish node disc with an inner light. Drawn at 2r in world space. */
 export function getCoreSprite(hex: string): HTMLCanvasElement {
+  hex = quantizeHex(hex); // bound the cache → build each shade once, then reuse
   const cached = coreCache.get(hex);
   if (cached) return cached;
   const S = 48;

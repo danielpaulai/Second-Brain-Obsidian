@@ -11,7 +11,7 @@ import StageGreeting from "@/components/StageGreeting";
 import StageActivity from "@/components/StageActivity";
 import StageAnswer from "@/components/StageAnswer";
 import StageReadthrough from "@/components/StageReadthrough";
-import StageLinkedIn from "@/components/StageLinkedIn";
+import StageLinkedInChat from "@/components/StageLinkedInChat";
 import StageDeck from "@/components/StageDeck";
 import ChatPanel, { type ChatPanelHandle } from "@/components/ChatPanel";
 import StatsBar from "@/components/StatsBar";
@@ -22,12 +22,18 @@ import MorningBriefBanner from "@/components/MorningBriefBanner";
 import { Kbd } from "@/components/ui/kbd";
 import { usePresentation } from "@/lib/presentation-store";
 import { useVoice } from "@/lib/voice-store";
+import { parseLinkedInScope } from "@/lib/linkedin-scope";
+import { pickVisualRecall } from "@/lib/visual-recall";
 import { STAGE_BG } from "@/lib/brain-visual";
 import type { BrainGraph as GraphData } from "@/lib/vault";
-import type { AgentId } from "@/lib/agents";
+import { AGENTS, type AgentId } from "@/lib/agents";
 
 const CHAT_WIDTH = 420;
 const STORAGE_KEY = "ai-danny-chat-collapsed";
+// The app now boots straight to the Stage: the landing is a single Start button and everything else
+// is unmounted. The classic live-graph + chat + presentation UI is KEPT in the tree below but disabled
+// behind this flag — flip it to true to restore the full app.
+const SHOW_CLASSIC_UI = false;
 
 export default function Home() {
   const [graph, setGraph] = useState<GraphData | null>(null);
@@ -39,14 +45,22 @@ export default function Home() {
   } | null>(null);
   const [highlights, setHighlights] = useState<string[]>([]);
   const [researchIds, setResearchIds] = useState<string[]>([]);
+  // The persistent "read circuit": the recalled + cited notes whose pathway stays traced (and the
+  // rest dimmed) until the NEXT prompt — the neuron-fired path that produced the answer.
+  const [pathwayIds, setPathwayIds] = useState<string[]>([]);
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agent, setAgent] = useState<AgentId>("danny");
+  const agentRef = useRef<AgentId>("danny");
+  agentRef.current = agent;
+  const [personaFlash, setPersonaFlash] = useState<AgentId | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [prefersReduced, setPrefersReduced] = useState(false);
   const chatRef = useRef<ChatPanelHandle>(null);
   const mode = usePresentation((s) => s.mode);
   const woken = usePresentation((s) => s.woken);
+  const answer = usePresentation((s) => s.answer);
   const igniteProgressive = usePresentation((s) => s.igniteProgressive);
   const beginThinking = usePresentation((s) => s.beginThinking);
   const clearFiring = usePresentation((s) => s.clearFiring);
@@ -58,6 +72,10 @@ export default function Home() {
   const thinkingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamPending = useRef<string[]>([]);
   const streamTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastQueryRef = useRef<string>("");      // last asked question — for the stage recall fallback
+  const pathwayIdsRef = useRef<string[]>([]);    // live mirror of pathwayIds, read inside effects
+  pathwayIdsRef.current = pathwayIds;
 
   // prefers-reduced-motion
   useEffect(() => {
@@ -131,8 +149,26 @@ export default function Home() {
   const titleToId = useCallback(
     (titles: string[]) => {
       if (!graph) return [];
-      const byTitle = new Map(graph.nodes.map((n) => [n.name.toLowerCase(), n.id]));
-      return titles.map((t) => byTitle.get(t.toLowerCase())).filter(Boolean) as string[];
+      // Normalise so retrieved/cited titles still resolve to nodes despite case, whitespace, or
+      // punctuation drift. An exact-only lookup was the #1 reason the pathway "sometimes" stayed
+      // dark: any title that wasn't byte-perfect (or came from a distilled category) silently
+      // dropped. We match on a normalised key first, then an alphanumeric-only key as a fallback.
+      const norm = (s: string) => s.toLowerCase().replace(/[\s_]+/g, " ").trim();
+      const alnum = (s: string) => norm(s).replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+      const byNorm = new Map<string, string>();
+      const byAlnum = new Map<string, string>();
+      for (const n of graph.nodes) {
+        byNorm.set(norm(n.name), n.id);
+        const a = alnum(n.name);
+        if (a) byAlnum.set(a, n.id);
+      }
+      const out: string[] = [];
+      for (const t of titles) {
+        if (!t) continue;
+        const id = byNorm.get(norm(t)) ?? byAlnum.get(alnum(t));
+        if (id) out.push(id);
+      }
+      return [...new Set(out)];
     },
     [graph]
   );
@@ -157,20 +193,48 @@ export default function Home() {
   }, []);
 
   // A new query began — reset highlight state and play the "thinking" animation until results land.
-  const handleQueryStart = useCallback(() => {
-    if (clearTimer.current) clearTimeout(clearTimer.current);
-    if (streamTimer.current) clearTimeout(streamTimer.current);
-    streamPending.current = [];
-    researchedRef.current.clear();
-    citedRef.current.clear();
-    setResearchIds([]);
-    setHighlights([]);
-    beginThinking();
-    setThinking(true);
-    // Safety: never leave the thinking animation stuck if a turn produces no results.
-    if (thinkingTimer.current) clearTimeout(thinkingTimer.current);
-    thinkingTimer.current = setTimeout(() => setThinking(false), 30000);
-  }, [beginThinking]);
+  const handleQueryStart = useCallback(
+    (query: string) => {
+      lastQueryRef.current = query; // remembered for the stage "never dark" recall fallback
+      if (clearTimer.current) clearTimeout(clearTimer.current);
+      if (streamTimer.current) clearTimeout(streamTimer.current);
+      if (recallTimer.current) clearTimeout(recallTimer.current);
+      streamPending.current = [];
+      researchedRef.current.clear();
+      citedRef.current.clear();
+      setResearchIds([]);
+      setHighlights([]);
+      setPathwayIds([]); // reset the persistent read-circuit for the new prompt
+      beginThinking();
+      setThinking(true);
+      // Safety: never leave the thinking animation stuck if a turn produces no results.
+      if (thinkingTimer.current) clearTimeout(thinkingTimer.current);
+      thinkingTimer.current = setTimeout(() => setThinking(false), 30000);
+
+      // Light + connect a query-relevant recall set after a short thinking beat. This is the RELIABLE
+      // base pathway: it fires for EVERY query (live AND stage) regardless of which tools the model
+      // ends up using, so the brain never sits dark during the read-through. On stage the mapped
+      // read-through notes and the answer's citations are ADDED on top to refine it. Live auto-clears
+      // after a beat; the stage circuit holds until the next prompt.
+      if (graph) {
+        const isStage = usePresentation.getState().mode === "stage";
+        const { ids } = pickVisualRecall(graph, query);
+        if (ids.length) {
+          recallTimer.current = setTimeout(() => {
+            if (usePresentation.getState().linkedinActive) return; // LinkedIn report owns the stage
+            for (const id of ids) researchedRef.current.add(id);
+            const all = [...researchedRef.current];
+            setResearchIds(all); // the firing animation
+            setPathwayIds((prev) => [...new Set([...prev, ...all])]); // the connected read-circuit
+            igniteProgressive(all, agentRef.current);
+            setThinking(false); // the cluster sweep is now the show
+            if (!isStage) armClear(); // live fades after a beat; the stage circuit holds until the next prompt
+          }, isStage ? 200 : 360);
+        }
+      }
+    },
+    [beginThinking, graph, igniteProgressive, armClear]
+  );
 
   // RETRIEVED notes — light up live as each tool call resolves ("watch it query").
   // Debounced so a burst of tool results staggers smoothly.
@@ -209,6 +273,8 @@ export default function Home() {
       for (const id of ids) citedRef.current.add(id);
       const cited = [...citedRef.current];
       setHighlights(cited);
+      // Fold the answer's real citations into the persistent read-circuit so they stay traced too.
+      setPathwayIds((prev) => [...new Set([...prev, ...cited])]);
       igniteProgressive(cited, agent);
       armClear();
     },
@@ -221,13 +287,37 @@ export default function Home() {
   const revealedTitles = usePresentation((s) => s.revealedTitles);
   useEffect(() => {
     if (mode !== "stage") return;
-    if (revealedTitles.length === 0) {
-      setResearchIds([]);
-      return;
+    if (revealedTitles.length === 0) return; // a new query resets via handleQueryStart; nothing to clear here
+    const ids = titleToId(revealedTitles);
+    if (ids.length) {
+      // ADD the revealed notes that map to real nodes (refining the recall base) — never REPLACE, or a
+      // batch of distilled-category titles that don't map would wipe the already-lit pathway → dark.
+      for (const id of ids) researchedRef.current.add(id);
+      setResearchIds((prev) => [...new Set([...prev, ...ids])]);
+      setPathwayIds((prev) => [...new Set([...prev, ...ids])]);
     }
-    setResearchIds(titleToId(revealedTitles));
     setThinking(false); // a node is being read — drop the "thinking" shimmer
   }, [revealedTitles, mode, titleToId]);
+
+  // STAGE robustness: when the answer lands, ALSO light the notes it actually CITED ([[wikilinks]]).
+  // Those are real note titles, so they map to nodes even when the read-through cards were distilled
+  // categories (queryKnowledge) that don't exist as graph nodes — the reliable "these notes produced
+  // the answer" signal. And if NOTHING lit this whole turn, fall back to a query-relevant recall so
+  // the brain is never left dark (the "sometimes it doesn't light up" bug).
+  useEffect(() => {
+    if (mode !== "stage" || !answer) return;
+    if (usePresentation.getState().linkedinActive) return; // LinkedIn report has its own theater
+    const cited = [...answer.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) =>
+      m[1].split("|")[0].split("#")[0].trim()
+    );
+    let ids = titleToId(cited);
+    if (ids.length === 0 && pathwayIdsRef.current.length === 0 && graph && lastQueryRef.current) {
+      ids = pickVisualRecall(graph, lastQueryRef.current).ids; // safety net: never leave it dark
+    }
+    if (ids.length === 0) return;
+    setResearchIds((prev) => [...new Set([...prev, ...ids])]);
+    setPathwayIds((prev) => [...new Set([...prev, ...ids])]); // fold into the persistent read-circuit
+  }, [answer, mode, titleToId, graph]);
 
   // Clear pending ignition timers on unmount.
   useEffect(
@@ -235,6 +325,7 @@ export default function Home() {
       if (clearTimer.current) clearTimeout(clearTimer.current);
       if (streamTimer.current) clearTimeout(streamTimer.current);
       if (thinkingTimer.current) clearTimeout(thinkingTimer.current);
+      if (recallTimer.current) clearTimeout(recallTimer.current);
     },
     []
   );
@@ -265,6 +356,31 @@ export default function Home() {
       v.setPhase("idle");
       return;
     }
+    // LinkedIn "scrape & analyse" — runs the dedicated mock chat (charts + report, NO TTS),
+    // not the real LLM chat.
+    const isLinkedIn =
+      /linked\s?in/.test(norm) && /(scrape|check|review|look|analy|post|content|working|audit|profile)/.test(norm);
+    if (st.mode === "stage" && isLinkedIn) {
+      v.setSpeakNext(false);
+      v.setPhase("idle");
+      st.startLinkedInScrape(text);
+      return;
+    }
+    // Continuity: a LinkedIn report is already on screen, so a follow-up that changes the SCOPE
+    // ("now do last week", "what about my last 5 posts") or asks to regenerate re-runs the whole
+    // flow with the new window — even without re-saying "linkedin".
+    if (st.mode === "stage" && st.linkedinActive) {
+      const sc = parseLinkedInScope(text); // original text — `norm` strips the digits in "last 5 posts"
+      const regen = /\b(again|another|one more|same|re-?do|re-?run|regenerate|this time|instead|now (do|show|run|give|pull)|what about|how about)\b/.test(norm);
+      const leaving = /\b(exit|go back|stop|never ?mind|forget it|cancel|close)\b/.test(norm);
+      if (!leaving && (sc.kind !== "all" || regen)) {
+        v.setSpeakNext(false);
+        v.setPhase("idle");
+        // a new window overrides; a bare "do another" reuses the previous scope.
+        st.startLinkedInScrape(sc.kind !== "all" ? text : st.linkedinQuery || text);
+        return;
+      }
+    }
     chatRef.current?.ask(text);
   }, []);
 
@@ -277,6 +393,38 @@ export default function Home() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  // Persona hotkeys — press 1–6 (no modifier) to switch the active exec in the live OR stage demo.
+  //   1 AI Danny · 2 CEO · 3 COO · 4 CFO · 5 CMO · 6 CRO
+  // The agent drives the next answer's system prompt; a brief colored pill confirms the switch.
+  useEffect(() => {
+    const ORDER: AgentId[] = ["danny", "ceo", "coo", "cfo", "cmo", "cro"];
+    const inEditable = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (inEditable()) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > ORDER.length) return;
+      e.preventDefault();
+      const id = ORDER[n - 1];
+      if (id !== agentRef.current) {
+        setAgent(id);
+        usePresentation.getState().setPersona(id);
+      }
+      setPersonaFlash(id);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setPersonaFlash(null), 1700);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    };
   }, []);
 
   // Stage takes over the whole screen — request browser fullscreen on enter (hides the
@@ -304,6 +452,49 @@ export default function Home() {
 
   return (
     <main className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
+      {/* Landing — the app opens on a single big Start button that launches the Stage. */}
+      {!SHOW_CLASSIC_UI && mode !== "stage" && (
+        <div className="flex-1 grid place-items-center" style={{ background: STAGE_BG }}>
+          {error ? (
+            <div className="max-w-md px-8 text-center">
+              <div className="mb-2 font-medium text-rose-400">Couldn&apos;t read your vault</div>
+              <div className="font-mono text-xs text-muted-foreground">{error}</div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => usePresentation.getState().setMode("stage")}
+              className="group relative rounded-2xl border border-cyan-300/30 bg-gradient-to-b from-white/[0.08] to-white/[0.015] px-20 py-7 text-3xl font-light tracking-tight shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_0_70px_-14px_rgba(34,211,238,0.65)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-300/60 hover:from-white/[0.13] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_0_110px_-12px_rgba(34,211,238,0.9)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60"
+            >
+              <span className="bg-gradient-to-br from-white via-cyan-50 to-cyan-200/80 bg-clip-text text-transparent">Start</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Chat engine — kept mounted (laid out but invisible) so voice/queries still reach the LLM and
+          drive the Stage read-through via chatRef. The visible chat sidebar lives in the disabled
+          classic UI below; this is just the headless engine. */}
+      {!SHOW_CLASSIC_UI && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed left-0 top-0 -z-10 opacity-0"
+          style={{ width: CHAT_WIDTH, height: "100dvh" }}
+        >
+          <ChatPanel
+            ref={chatRef}
+            agent={agent}
+            onAgentChange={setAgent}
+            onBrainQuery={handleBrainQuery}
+            onResearch={handleResearch}
+            onQueryStart={handleQueryStart}
+          />
+        </div>
+      )}
+
+      {/* ── Classic live / presentation + chat UI — preserved but disabled (SHOW_CLASSIC_UI). ── */}
+      {SHOW_CLASSIC_UI && (
+      <>
       <header className="relative flex items-center justify-between px-5 py-3 border-b border-border">
         <HeaderBackdrop />
         <div className="relative flex items-center gap-3">
@@ -345,7 +536,7 @@ export default function Home() {
           ) : mode === "stage" ? null : mode === "presentation" ? (
             <PresentationGraph data={graph} highlights={highlights} />
           ) : (
-            <BrainGraph data={graph} highlights={highlights} researchIds={researchIds} thinking={thinking} personaAgent={agent} />
+            <BrainGraph data={graph} highlights={highlights} researchIds={researchIds} pathwayIds={pathwayIds} thinking={thinking} personaAgent={agent} />
           )}
 
           {/* Glass HUD + hints + brief — shown in live & presentation; hidden on the clutter-free stage. */}
@@ -417,6 +608,8 @@ export default function Home() {
           </AnimatePresence>
         </motion.button>
       </div>
+      </>
+      )}
 
       {/* ── Stage mode: full-bleed cinematic, all chrome hidden behind it ── */}
       {mode === "stage" && !error && (
@@ -428,6 +621,7 @@ export default function Home() {
             data={graph}
             highlights={highlights}
             researchIds={researchIds}
+            pathwayIds={pathwayIds}
             thinking={thinking}
             personaAgent={agent}
           />
@@ -438,7 +632,7 @@ export default function Home() {
           <StageReadthrough />
           <StageGreeting />
           <StageActivity />
-          <StageLinkedIn />
+          <StageLinkedInChat />
           <StageAnswer />
 
           <AnimatePresence>
@@ -460,9 +654,40 @@ export default function Home() {
         </div>
       )}
 
-      {/* Voice pill — single instance, floats above both the live view and the stage */}
-      {!error && <VoiceDeck onSend={handleVoice} />}
+      {/* Persona switch confirmation — floats above everything incl. the stage overlay */}
+      <AnimatePresence>
+        {personaFlash && (
+          <motion.div
+            key={personaFlash}
+            initial={{ opacity: 0, y: -14, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="pointer-events-none fixed left-1/2 top-7 z-[100] -translate-x-1/2"
+          >
+            <div
+              className="flex items-center gap-3 rounded-full border px-5 py-2.5 shadow-2xl backdrop-blur-xl"
+              style={{
+                borderColor: `${AGENTS[personaFlash].color}55`,
+                background: `${AGENTS[personaFlash].color}1f`,
+                boxShadow: `0 8px 40px -12px ${AGENTS[personaFlash].color}aa`,
+              }}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: AGENTS[personaFlash].color, boxShadow: `0 0 14px ${AGENTS[personaFlash].color}` }}
+              />
+              <span className="text-sm font-semibold tracking-tight text-white">{AGENTS[personaFlash].name}</span>
+              <span className="text-xs text-white/55">{AGENTS[personaFlash].role}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
+      {/* Voice pill — drives the Stage (wake + questions); only mounted there now. */}
+      {!error && mode === "stage" && <VoiceDeck onSend={handleVoice} />}
+
+      {mode === "stage" && (
       <CommandPalette
         graph={graph}
         activeAgent={agent}
@@ -482,6 +707,7 @@ export default function Home() {
           }, 5000);
         }}
       />
+      )}
     </main>
   );
 }

@@ -22,6 +22,25 @@ export default function LoginPage() {
     });
   }, [router, supabase]);
 
+  // Complete an implicit-flow sign-in: a magic link that returns the session in the URL hash
+  // (#access_token=…&refresh_token=…) instead of a PKCE ?code. setSession writes the SSR cookies,
+  // then we bounce home. (The normal emailed link uses PKCE; this covers admin-generated links.)
+  useEffect(() => {
+    if (!supabase || typeof window === "undefined") return;
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const access_token = hash.get("access_token");
+    const refresh_token = hash.get("refresh_token");
+    if (!access_token || !refresh_token) return;
+    supabase.auth.setSession({ access_token, refresh_token }).then(({ error }) => {
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      window.history.replaceState(null, "", "/login");
+      router.replace("/");
+    });
+  }, [supabase, router]);
+
   async function signInWithEmail(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase) {

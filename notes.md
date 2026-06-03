@@ -6,7 +6,7 @@
 > notes are pulled, an answer streams back in Danny's voice. Watching it should feel like
 > watching a person _borrow Danny's brain in real time_.
 >
-> **Last updated:** 2026-06-01.
+> **Last updated:** 2026-06-03.
 > **Repo:** https://github.com/danielpaulai/Second-Brain-Obsidian.git
 > **Production:** https://ai-danny.vercel.app
 > **Local dev:** `./node_modules/.bin/next dev --turbopack` → http://localhost:3000
@@ -616,13 +616,13 @@ vercel logs ai-danny.vercel.app --follow
 
 The stage demo is "done" when **every one of these is true**:
 
-- [ ] Danny presses `1` and within 1.5s the brain is researching, within 4s the first answer card appears.
-- [x] Holding spacebar records voice, releasing sends the question, transcript shows live in the HUD. _(2026-06-02: `VoiceDeck` — hold Space → record, release → server STT (OpenAI `whisper-1`) → send; floating HUD shows listening/level-meter/transcribing/thinking/speaking. Needs a real mic to exercise.)_
+- [?] Danny presses `1` and within 1.5s the brain is researching, within 4s the first answer card appears.
+- [x] Holding spacebar records voice, releasing sends the question, transcript shows live in the HUD. _(2026-06-02: `VoiceDeck` — hold Space → record, release → STT → send; floating HUD shows listening/level-meter/transcribing/thinking/speaking. Needs a real mic to exercise. **2026-06-03: STT is now ON-DEVICE browser Whisper (`@huggingface/transformers` v4, WebGPU) — no OpenAI key, audio never leaves the browser.**)_
 - [ ] All 9 pre-baked scenarios run end-to-end without network errors (offline cache fallback verified).
-- [ ] In Stage mode, the chrome (header, sidebar, brief banner) is fully hidden.
+- [x] In Stage mode, the chrome (header, sidebar, brief banner) is fully hidden. _(2026-06-03: stage renders as a `fixed inset-0 z-50` full-bleed overlay over the whole app; `BrainHud` / graph hint / `MorningBriefBanner` are gated out when `mode==="stage"`; entering stage also requests browser fullscreen to drop the tab/URL chrome — `page.tsx:432`, `:362`.)_
 - [ ] Typography is readable from row 12 of a 500-seat auditorium (test: 32px+ on a 13" laptop = 4ft+ on a stage screen).
 - [x] Tool-call streaming makes the "researching" moment feel alive — no dead 3s pause. _(2026-06-02: retrieved notes light up **live as each `queryBrain` tool call resolves mid-stream** (harvested from `message.toolInvocations` results), so the graph scans while the brain is thinking — verified the HUD enters "◍ RECALLING" at ~4.7s while tool calls were still firing. At `onFinish` the **cited** notes (the answer's `[[wikilinks]]`) get a fresh emphasis pulse + camera-fit and the non-cited research nodes fade. Action-potential beads travel the links. Server-side `experimental_toolCallStreaming` + a dedicated `ResearchOverlay` text panel still pending.)_
-- [ ] Persona switch is visually obvious within 500ms (color palette changes).
+- [x] Persona switch is visually obvious within 500ms (color palette changes).
 - [ ] `/ask` (team mode) shows redaction chips so the audience can see "this is what your team sees" vs "this is what Danny sees."
 - [ ] One of Danny's real past queries can be replayed pixel-perfect from `stage_recordings`.
 - [ ] No console errors during a 4-minute run.
@@ -648,9 +648,28 @@ The main graph element was redesigned (was: muted pastel dots on flat `#1e1e1e`)
 - [x] `prefers-reduced-motion` honoured on both surfaces (no shimmer/shockwave/beads/dust/aurora/camera; calm cross-fade); keyboard-navigable canvas + screen-reader node list.
 - [x] Robustness: Supabase-backed tools (`describeBrain`/`queryDatabase`) now fail soft instead of aborting the chat stream when Supabase isn't configured — so the cinematic works with just the vault + OpenAI key.
 - [x] **Voice demo (push-to-talk)**: hold **Space** → record → **STT via `/api/stt` (OpenAI `whisper-1`, server-side)** → auto-send to the AI → answer **spoken back via ElevenLabs `eleven_flash_v2_5`** (~75ms latency model) through `/api/tts` (key stays server-side; voice `IKne3meq5aSn9XLyUdCD` "Charlie", override `ELEVENLABS_VOICE_ID`). `VoiceDeck` HUD shows listening/meter/transcribing/thinking/speaking; `voice-store` coordinates phase + speak-next; spacebar ignored while typing; new recording interrupts playback. Verified TTS→STT round-trip transcribes exactly (~1.9s TTS, ~2.4s STT). _Env: TTS reads `ELEVENLABS_API_KEY` or the existing `Elevel_Labs`; STT reads `OPENAI_API_KEY` (model override `STT_MODEL`)._
-  - ⚠️ **STT moved server-side (OpenAI) on purpose**: `@xenova/transformers` (in-browser Whisper) **crashes on module-eval under Next Turbopack** (`env.js` `Object.keys(undefined)`), so the local path is unusable in this dev stack. `voice.ts`'s `loadWhisper`/`transcribe` are now dead (never called → transformers never evaluates → no crash); `getMicrophoneStream`/`isWhisperSupported` are still used. To restore the "voice never leaves the browser" flex later, migrate to `@huggingface/transformers` v3 (Turbopack-compatible) and re-point `VoiceDeck`/`VoiceInput` at it.
+  - ✅ **STT is back to 100% ON-DEVICE in the browser** (2026-06-03): migrated `voice.ts` from the crash-prone `@xenova/transformers` to **`@huggingface/transformers` v4** — dynamic-imported inside a client-only `loadWhisper()` so it never evaluates during SSR/the Turbopack build (the old crash). Model `onnx-community/whisper-base.en` runs on **WebGPU** (else WASM); `stt.ts` `transcribeAudio` calls the local `transcribe()` instead of `/api/stt`; `VoiceDeck` pre-warms the model ~2.5s after mount. No OpenAI key, audio never leaves the browser. Verified in Chrome (loads via WebGPU + inference runs). Install note: `npm i @huggingface/transformers --ignore-scripts` (a full install rebuilds `sharp` from source and fails; sharp isn't needed for browser Whisper). `.en` models throw if you pass `language`/`task` to the pipeline — omit them. The old `/api/stt` (OpenAI) route is now unused. (TTS/spoken greeting still needs `ELEVENLABS_API_KEY` — no on-device TTS.)
 
-Pending follow-ups (not this pass): full-bleed stage chrome-hide (§3 P0), 40–48px stage HUD typography (DoD), server `experimental_toolCallStreaming` + `ResearchOverlay` (§3 P1), full per-persona scene palette shift (DoD), 3D nodes read white rather than folder-hued (emissive/instanceColor tradeoff — tune if folder colour in 3D matters).
+Pending follow-ups (not this pass): server `experimental_toolCallStreaming` + a text `ResearchOverlay` panel (§3 P1 — the graph already lights up live; the streamed status text is the missing half), full per-persona scene palette shift (DoD), 3D nodes read white rather than folder-hued (emissive/instanceColor tradeoff — tune if folder colour in 3D matters). _(Full-bleed stage chrome-hide is now DONE — see §13/§13b.)_
+
+### 13b. Stage answer rendering — token-driven block library (2026-06-03)
+
+The stage's right-rail answer output (§3 **P4** "typed components, not raw markdown") is built and well past the original spec — it is the cinematic "the brain is answering" surface. Delivered:
+
+- [x] **ONE reusable token-driven block library** `src/components/blocks/` renders EVERY AI answer — both general stage answers AND the LinkedIn report — from the same set (no per-surface rendering). The model writes plain markdown sprinkled with inline tokens; `parse.ts` splits them into typed blocks; `Blocks.tsx` renders rich glassmorphism UI.
+- [x] **16 block types**: callout (insight/win/risk/note), keypoints, actions, stats, quote, chips, idea (LinkedIn post preview), timeline (chronology w/ node-spine), steps (numbered framework), decision (when→then→because), people (avatar roster), kpi (hero number that counts up), meter (goal-progress bars), bars (ranked comparison), define (term spotlight), table (relational data). Note-citations `[[Title]]` render as cyan source chips, not raw brackets.
+- [x] **The AI actually uses them appropriately** — chat `route.ts` rule #7 is a when-to-use matrix (pick the block by the data's SHAPE: sequence→timeline, framework→steps, conditional→decision, roster→people, one hero→kpi, goal→meter, ranking→bars, definition→define, relational→table). Recap DEPTH enforced: read the full note, 6-10 timeline beats with every field filled (infer from context to fill gaps), 5-6+ blocks, never a thin skeleton, never a raw markdown table, always close every token.
+- [x] **Card-first-then-content motion** (`reveal.tsx`): the frosted glass shell condenses in (blur 7→0), then its content (icon, text, rows, bars) resolves on, staggered. Shared primitive used by every block + the charts.
+- [x] **STRICT-SEQUENTIAL playback** — each element fully forms (card → icon reveal → **typewriter** text / count-up / bar fill / chart draw) and only then does the NEXT element start, so a chart is never overtaken by the block after it. A subtitle waits until its title finishes typing.
+- [x] **LinkedIn report**: 4 recharts (engagement area · top-posts leaderboard · reaction donut · cadence) that **FORM UP** (the card shell + empty axes appear, then the data series draws on, gated ~480ms) + a KPI strip + post-preview "idea" cards. Mock 70s scrape → real gpt-5.5 high-reasoning analysis → streamed report. Preview at `/charts-preview`.
+- [x] **High-end glass tables**: a `[[table]]` block (numeric columns auto right-aligned, citations inside cells) AND raw markdown tables restyled as glass with Streamdown's copy/**download toolbar** removed (`controls={false}`); pipe parsers tolerate markdown-table syntax.
+- [x] **Adaptive sizing** (short bare answers scale UP to fill the right panel), em-based prose, `prefers-reduced-motion` honoured (clean cross-fade).
+- [x] **Streaming auto-scroll** follows the caret but STOPS the moment the user scrolls up (so they can re-read) and once the stream finishes (no more yank-back-to-bottom).
+- [x] **Answers are silent** (only the opening greeting speaks; see [src/components/StageReadthrough.tsx](src/components/StageReadthrough.tsx)) — rich structured cards carry the answer instead.
+- Surfaces: [src/components/blocks/](src/components/blocks/), [src/components/StageAnswer.tsx](src/components/StageAnswer.tsx), [src/components/StageLinkedInChat.tsx](src/components/StageLinkedInChat.tsx), [src/components/LinkedInReport.tsx](src/components/LinkedInReport.tsx), [src/components/charts/](src/components/charts/). Galleries: **`/blocks-preview`** (every block, Replay per section) and **`/charts-preview`**.
+- Verified in Chrome: each block renders when expected, sequential typewriter confirmed by DOM sampling, tables render as glass with 0 toolbar buttons, scroll-follow stop verified, no console errors.
+
+This replaces the original §3 P4 plan (separate `generateObject` + per-kind `*Card` components) with a leaner token-in-markdown approach that streams naturally and shares one renderer across surfaces.
 
 ---
 

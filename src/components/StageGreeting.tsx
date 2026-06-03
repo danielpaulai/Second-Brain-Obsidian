@@ -12,7 +12,7 @@ import { playClip } from "@/lib/tts";
  * right, in lock-step with a PRE-GENERATED voice clip (/audio/greeting.mp3) so the audio
  * starts exactly with the text. Smooth, glassy, deliberately unhurried.
  */
-const GREETING = "Hi, I'm AI Danny. What can I help you with?";
+const GREETING = "Hi Danny, I am your second brain. How can I help you today?";
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 export default function StageGreeting() {

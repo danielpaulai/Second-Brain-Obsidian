@@ -73,15 +73,12 @@ export default function StageDeck() {
           <DeckButton icon={ShareNetwork} label="Live" active={mode === "live"} onClick={() => pick("live")} />
           <DeckButton icon={Cube} label="Presentation" active={mode === "presentation"} onClick={() => pick("presentation")} />
           <DeckButton icon={FilmSlate} label="Stage" active={mode === "stage"} onClick={() => pick("stage")} shortcut="⌘⇧P" />
-          {/* Theatre.js choreography studio — available in the non-live cinematic modes. */}
-          {mode !== "live" && (
-            <>
-              <span className="mx-0.5 h-7 w-px bg-white/10" />
-              <DeckButton icon={Sliders} label="Choreo" active={studioOn} onClick={() => setStudioOn(toggleStudio())} shortcut="⌘E" />
-              {studioOn && (
-                <DeckButton icon={FloppyDisk} label="Save" onClick={() => void onSaveChoreo()} shortcut="⌘S" />
-              )}
-            </>
+          {/* Theatre.js choreography studio — always available (also ⌘E). It choreographs the
+              Presentation cinematic, but the editor is a global overlay so it opens from any mode. */}
+          <span className="mx-0.5 h-7 w-px bg-white/10" />
+          <DeckButton icon={Sliders} label="Choreo" active={studioOn} onClick={() => setStudioOn(toggleStudio())} shortcut="⌘E" />
+          {studioOn && (
+            <DeckButton icon={FloppyDisk} label="Save" onClick={() => void onSaveChoreo()} shortcut="⌘S" />
           )}
         </div>
       </motion.div>

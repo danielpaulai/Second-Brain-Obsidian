@@ -42,14 +42,19 @@ export function computeSphereShape(n: number, W: number, H: number, _seed = 1): 
   }
 
   // Wireframe edges: each node → its K nearest surface neighbours (each edge kept once).
-  // O(n²) — trivial for the ~300-node stage globe.
+  // The nearest neighbours of a Fibonacci-lattice point lie within a bounded INDEX window (offsets
+  // near the Fibonacci numbers ~√n), so for big clouds search a window instead of all-pairs — keeps
+  // this O(n·√n) instead of O(n²) (a full 2,500-node globe would otherwise be ~6M ops on mount).
   const K_NEIGH = 3;
+  const win = count > 700 ? Math.max(60, Math.round(2.5 * Math.sqrt(count))) : count;
   const seen = new Set<number>();
   const edges: [number, number][] = [];
   for (let i = 0; i < count; i++) {
     const a = unit[i];
     const best: { j: number; d: number }[] = []; // worst-first, length ≤ K_NEIGH
-    for (let j = 0; j < count; j++) {
+    const lo = win >= count ? 0 : Math.max(0, i - win);
+    const hi = win >= count ? count : Math.min(count, i + win + 1);
+    for (let j = lo; j < hi; j++) {
       if (j === i) continue;
       const b = unit[j];
       const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { semanticSearch, lazyReindex, getIndexState } from "./semantic";
+import { readText as storageReadText } from "./storage";
 
 export type VaultNote = {
   id: string;
@@ -94,8 +95,9 @@ async function readVaultFromBlob(): Promise<VaultNote[]> {
   } while (cursor);
 
   const notes: VaultNote[] = [];
-  // Fetch in parallel batches to keep memory + connections in check
-  const BATCH = 25;
+  // Fetch in parallel batches. Higher concurrency matters a lot here — the vault is thousands of
+  // individually-fetched private blobs, so 25-at-a-time was a 1-3 minute cold read.
+  const BATCH = 100;
   for (let i = 0; i < allBlobs.length; i += BATCH) {
     const slice = allBlobs.slice(i, i + BATCH);
     const results = await Promise.all(
@@ -104,7 +106,8 @@ async function readVaultFromBlob(): Promise<VaultNote[]> {
         if (!rel.endsWith(".md")) return null;
         if (isExcluded(rel)) return null;
         try {
-          const res = await fetch(b.url);
+          // The store is PRIVATE — the blob URL 403s without the token on the request.
+          const res = await fetch(b.url, { headers: { Authorization: `Bearer ${token}` } });
           if (!res.ok) return null;
           const raw = await res.text();
           const { data, content } = matter(raw);
@@ -212,15 +215,28 @@ export function searchNotes(notes: VaultNote[], query: string, limit = 8) {
     }));
 }
 
-let cache: { notes: VaultNote[]; graph: BrainGraph; loadedAt: number } | null = null;
-const TTL_MS = 60_000;
+type VaultCache = { notes: VaultNote[]; graph: BrainGraph; loadedAt: number };
+let cache: VaultCache | null = null;
+let cacheLoading: Promise<VaultCache> | null = null;
+// Disk: short TTL so local edits show up. Blob (production data): the snapshot is static for the
+// session and a cold read is slow, so cache it for hours — otherwise it perpetually re-reads.
+const TTL_MS = VAULT_PATH ? 60_000 : 6 * 60 * 60 * 1000;
 
-export async function getCachedVault() {
+export async function getCachedVault(): Promise<VaultCache> {
   if (cache && Date.now() - cache.loadedAt < TTL_MS) return cache;
-  const notes = await readVault();
-  const graph = buildGraph(notes);
-  cache = { notes, graph, loadedAt: Date.now() };
-  return cache;
+  // Coalesce concurrent cold reads — a page load + a few API hits must NOT each re-read every blob.
+  if (cacheLoading) return cacheLoading;
+  cacheLoading = (async () => {
+    const notes = await readVault();
+    const graph = buildGraph(notes);
+    cache = { notes, graph, loadedAt: Date.now() };
+    return cache;
+  })();
+  try {
+    return await cacheLoading;
+  } finally {
+    cacheLoading = null;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -270,7 +286,9 @@ export async function getIdentityContext(): Promise<IdentityContext> {
   if (identityCache && Date.now() - identityCache.loadedAt < IDENTITY_TTL_MS) {
     return identityCache.ctx;
   }
-  if (!VAULT_PATH) {
+  // Read identity from disk (VAULT_PATH) OR Vercel Blob — whichever is configured (storageReadText
+  // handles both). In production the vault lives in a PRIVATE Blob store, so this is the only path.
+  if (!VAULT_PATH && !process.env.BLOB_READ_WRITE_TOKEN) {
     return {
       master: "",
       voice: "",
@@ -281,20 +299,17 @@ export async function getIdentityContext(): Promise<IdentityContext> {
       loadedFiles: [],
     };
   }
-  const dir = path.join(VAULT_PATH, IDENTITY_DIR);
   const loadedFiles: string[] = [];
 
   // Load MASTER.md first — it's the authoritative source.
-  const masterPath = path.join(dir, MASTER_FILE);
-  const master = await readOptional(masterPath);
+  const master = (await storageReadText(`${IDENTITY_DIR}/${MASTER_FILE}`)) || "";
   if (master) loadedFiles.push(MASTER_FILE);
 
   // Also load split files. When MASTER is present, they're not added to
   // loadedFiles since the master already contains everything.
   const reads = await Promise.all(
     Object.entries(IDENTITY_FILES).map(async ([key, name]) => {
-      const full = path.join(dir, name);
-      const txt = await readOptional(full);
+      const txt = (await storageReadText(`${IDENTITY_DIR}/${name}`)) || "";
       if (txt && !master) loadedFiles.push(name);
       return [key, txt] as const;
     })

@@ -61,8 +61,13 @@ type PresentationState = {
   pendingAnswer: string | null;
   /** Stage Q&A: the settled final answer text (shown big, like the greeting). */
   answer: string;
-  /** Stage: the LinkedIn "scrape" theater is running (logo + post-card slideshow). */
+  /** Stage: the LinkedIn "scrape & analyse" chat is running. */
   linkedinActive: boolean;
+  /** Stage: the question that kicked off the LinkedIn chat (shown as the user message). */
+  linkedinQuery: string;
+  /** Stage: bumps on every `startLinkedInScrape` so a re-run (new scope) fully remounts the flow.
+   *  >1 means a prior run already happened this session → the re-run uses a quick re-scope, not a full scrape. */
+  linkedinRunId: number;
   /** Notes currently being "fired at" by a query — drives the cinematic burst */
   firing: string[];
   phase: Phase;
@@ -97,8 +102,8 @@ type PresentationState = {
   commitAnswer: () => void;
   /** Stage Q&A: reveal a specific (already-formatted) display string as the answer. */
   revealAnswer: (display: string) => void;
-  /** Stage: start the LinkedIn scrape theater (replaces the read-through for this turn). */
-  startLinkedInScrape: () => void;
+  /** Stage: start the LinkedIn scrape & analyse chat (replaces the read-through for this turn). */
+  startLinkedInScrape: (query?: string) => void;
   /** Stage: the LinkedIn theater finished — tear it down. */
   endLinkedIn: () => void;
   /** A query was submitted — brain is "thinking" before any results land. */
@@ -119,6 +124,8 @@ export const usePresentation = create<PresentationState>((set, get) => ({
   pendingAnswer: null,
   answer: "",
   linkedinActive: false,
+  linkedinQuery: "",
+  linkedinRunId: 0,
   firing: [],
   phase: "idle",
   litCount: 0,
@@ -134,7 +141,7 @@ export const usePresentation = create<PresentationState>((set, get) => ({
     set({
       mode: m, on: nonLive, woken: false, expanded: false,
       querying: false, readQueue: [], revealedTitles: [], stageCards: [], pendingAnswer: null, answer: "",
-      linkedinActive: false,
+      linkedinActive: false, linkedinQuery: "", linkedinRunId: 0,
     });
   },
   // ⌘⇧P / Esc / debug all map onto the primary Live↔Stage path.
@@ -143,9 +150,12 @@ export const usePresentation = create<PresentationState>((set, get) => ({
   wake: () => set({ woken: true }),
   setExpanded: (v) => set({ expanded: v }),
   startQuery: () =>
-    set({ querying: true, readQueue: [], revealedTitles: [], stageCards: [], pendingAnswer: null, answer: "", linkedinActive: false }),
-  startLinkedInScrape: () =>
-    set({ querying: true, linkedinActive: true, readQueue: [], revealedTitles: [], stageCards: [], pendingAnswer: null, answer: "" }),
+    set({ querying: true, readQueue: [], revealedTitles: [], stageCards: [], pendingAnswer: null, answer: "", linkedinActive: false, linkedinQuery: "", linkedinRunId: 0 }),
+  startLinkedInScrape: (query = "") =>
+    set((s) => ({
+      querying: true, linkedinActive: true, linkedinQuery: query, linkedinRunId: s.linkedinRunId + 1,
+      readQueue: [], revealedTitles: [], stageCards: [], pendingAnswer: null, answer: "",
+    })),
   endLinkedIn: () => set({ linkedinActive: false }),
   enqueueReads: (titles) =>
     set((s) => {

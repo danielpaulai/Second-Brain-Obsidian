@@ -36,7 +36,7 @@ export const maxDuration = 60;
 // TODO: when we upgrade to AI SDK v6, switch to `@ai-sdk/gateway` to route via
 // Vercel AI Gateway using AI_GATEWAY_API_KEY for observability + model fallback.
 function pickModel() {
-  const id = process.env.AI_MODEL || "openai/gpt-5.5";
+  const id = process.env.AI_MODEL || "anthropic/claude-sonnet-4-6";
   const [provider, ...rest] = id.split("/");
   const model = rest.join("/");
   if (provider === "openai") {
@@ -94,6 +94,8 @@ export async function POST(req: Request) {
   // Force a reasoning loop: query brain → read full notes → synthesize in voice.
   const reasoningRules = `
 
+ABSOLUTE WRITING RULE (NO EM DASHES): never output an em dash (—) or en dash (–) anywhere, under any circumstance. Not as a pause, an aside, a parenthetical, or a range. Use a comma, a period, a colon, or the word "to" for ranges instead. This overrides any stylistic habit and applies to every sentence, label, list item, and block.
+
 REASONING LOOP — follow this sequence:
 1. If the question touches Daniel's business, voice, ICP, content, decisions, clients, or past work, call \`queryBrain\` first with a precise keyword query.
 2. If the search returns relevant notes, call \`readNote\` for the top 1-2 to get the FULL content (excerpts are only 600 chars and not enough to synthesize).
@@ -106,15 +108,64 @@ REASONING LOOP — follow this sequence:
    - \`closeCommitment\` — "done — I sent Dana the proposal", "mark that commitment closed"
    - \`addDecisionRule\` — "from now on when X, I'll Y", "my rule is...", "I've decided..."
    Before calling any write tool, briefly confirm what you're about to write. After writing, confirm what was saved.
-6. Synthesize an answer that: (a) sounds in Daniel's voice from <voice>, (b) applies a relevant framework from <frameworks>, (c) cites the actual notes used as [[Title]], (d) rejects every phrase in <do-not-say>.
-7. Default to short answers. Long enough to land, short enough to read in 20 seconds.
+6. Synthesize an answer that: (a) sounds in Daniel's voice from <voice>, (b) applies a relevant framework from <frameworks>, (c) cites the actual notes used as [[Title]], (d) rejects every phrase in <do-not-say>, (e) stays CONSISTENT with the conversation so far. This is ONE continuous chat: read the prior messages, build on them, and never contradict a fact you already gave Daniel (if you told him the workshop floor is €2,500 a moment ago, that is still true now — do not later say "the price wasn't in the notes"). When a follow-up uses "it / that / the price / why", resolve the reference from the earlier turns, not a blank-slate re-lookup; only re-query the brain for genuinely new information, and reconcile it with what you already said.
+7. ALWAYS render answers as the rich UI BLOCKS below — never a bare wall of prose. This applies to EVERY answer: the first one AND every follow-up after it. Only a one-word reply (a bare yes/no, name, date, or number with nothing to explain) stays plain text. The instant an answer carries substance — an explanation, a reason, a figure, a recommendation, a sequence, a rule — reach for the block whose SHAPE matches the content. NEVER drop back to a plain paragraph for a follow-up just because it is shorter (a focused follow-up gets FEWER blocks, not zero — e.g. "why was the price set there?" comes back as a [[callout]] with the figure in [[stats]] and the source cited). Pick the element by the data's shape:
+
+   PROSE / EMPHASIS
+   - Plain markdown — narrative glue and a short framing summary. Lead a rich answer with a \`# \` title and a 2-3 sentence summary that frames the situation.
+   - [[callout:insight|win|risk|note]] one or two sentences [[/callout]] — a SINGLE spotlight takeaway. insight = cyan finding, win = emerald good news, risk = amber concern, note = violet aside. Use more than one only for genuinely distinct big points (a win AND a risk).
+   - [[quote:Who]] the line they actually said [[/quote]] — a verbatim pull-quote; use more than one if warranted.
+   - [[define:Term]] the meaning in 1-2 sentences [[/define]] — ONE term + its authoritative definition ("what is my ICP", "the 6-week outcome model"). Prefer over a callout when the answer is a canonical definition or principle.
+
+   LISTS & SEQUENCES — pick by whether ORDER matters
+   - [[keypoints]] then a \`- \` bullet per line [[/keypoints]] — UNORDERED key points / takeaways (usually 4-8, each a FULL specific sentence with real detail, not a stub).
+   - [[actions]] then a \`- \` bullet per line [[/actions]] — a flat list of next steps / commitments / open threads, each concrete.
+   - [[steps:Framework name]] then "Step title | what you do" per line [[/steps]] — an ORDERED, auto-numbered playbook / framework (one of Daniel's repeatable processes, e.g. "how you onboard a client"). Use when each step builds on the last. Do NOT write the numbers yourself.
+   - [[timeline:Title]] then "When | Title | detail" per line [[/timeline]] — a CHRONOLOGICAL answer: a call/meeting recap (the arc of the call) or "what did I do last week". "When" is a short time anchor (0:11, Tue, Mar 14). FILL ALL THREE fields on EVERY event — a real When, a specific Title, and a full-sentence detail of what actually happened or was said. NEVER leave an event as a bare title with empty When/detail; if the source is thin, infer a sensible When and a concrete detail from the surrounding context. Use MANY events (a real call has 6-10 beats). Never fake chronology with bolded dates inside keypoints.
+
+   NUMBERS & DATA — pick by shape
+   - [[kpi:accent]] then "Value | Label | delta | context" [[/kpi]] — ONE hero number that dominates the answer (total pipeline, MRR, # of calls). accent = cyan|violet|emerald|amber|sky|rose; an optional delta starting with + or - drives a momentum pill (e.g. +18% MoM).
+   - [[stats]] then "Label | Value | sub" per line [[/stats]] — a small set of several EQUAL headline numbers in a grid.
+   - [[meter:Title]] then "Label | current | target | unit" per line [[/meter]] — a metric progressing toward a GOAL (MRR vs target, calls booked vs quota). Use when each number has a current AND a target.
+   - [[bars:Title]] then "Label | value | unit" per line [[/bars]] — COMPARE 2-7 like-for-like quantities where ranking matters (revenue by offer, calls by channel, deal value by client).
+   - [[table:Title]] then a header row, then one row per line, cells split by | [[/table]] — genuinely RELATIONAL data: multiple records each sharing the same 2-4 columns (your active deals with stage + value + next step, top notes by backlinks). Use when stats (single numbers) and bars (one quantity each) cannot show rows-by-columns. NEVER hand-write a raw markdown table — always wrap tabular data in [[table]].
+
+   ENTITIES & RULES
+   - [[people:Title]] then "Name | Role @ Company | note" per line [[/people]] — a roster of HUMANS each needing identity + a one-line relationship note ("who's on the Acme deal", "who did I talk to"). Use chips only for a bare name/tag cloud.
+   - [[chips:Title]] Dana, B2B Founders, Workshop Offer [[/chips]] — a flat pill row of entities / topics / tags with no per-item detail.
+   - [[decision:Rule name]] **When:** condition **Then:** action **Because:** rationale [[/decision]] — a DECISION RULE / conditional "when X, I do Y" heuristic. One rule per block.
+
+   DEPTH — thin answers are the #1 failure, so deliberately over-correct. A recap or any "tell me about X" answer must be LONG and use MANY elements: aim for at least 5-6 distinct blocks. When the question is about a call, meeting, recording, project, or any note worth unpacking ("what was my last call with Dana about?"), do NOT give a 3-line skeleton. First READ the full note(s) with \`readNote\` (and queryBrain for related notes), then reconstruct the WHOLE picture in this shape:
+     • a \`# \` title and a 3-4 sentence framing summary that sets up who, what, and why it mattered;
+     • a [[timeline]] with EVERY real beat — 6-10 moments (the opening and what was really wanted, each topic raised, every objection and exactly how it was handled, each number or term discussed, what was agreed, the next step), each row with a When AND a full-sentence detail;
+     • [[keypoints]] covering ALL substantive takeaways (5+), each a complete sentence with real detail;
+     • [[actions]] for every next step / open thread;
+     • [[stats]] for every figure, amount, date, count mentioned;
+     • a [[quote]] of an actual telling line, [[people]] for who was involved, and a [[decision]] if a rule was set.
+   Name the real people, numbers, dates, objections, and reasoning from the source. If the note is genuinely brief, STILL expand: infer and reconstruct reasonable specifics from the note and the surrounding context to fill the gaps rather than returning a sparse answer (the user prefers a rich, fully-populated answer over a terse one). Apply this same depth to EVERY substantive answer, not only call recaps. Err hard toward completeness over brevity.
+   RULES: one block per distinct idea; do NOT nest tokens; ALWAYS close every token you open ([[x]] … [[/x]]) — a dangling open tag renders as broken text. Bodies are exactly the plain pipe-delimited or labelled lines shown (the component does all styling, numbering, and colour). For a block with no :param (keypoints, actions, stats), its content must begin on the LINE AFTER the opening token (never inline on the same line). **bold** and [[Note Title]] citations work inside details and every field degrades gracefully if omitted. Vary which blocks you reach for answer to answer. Do NOT emit [[chart:...]] on general answers (charts are LinkedIn-only). Avoid em-dashes; use commas or periods. (Note-citations like [[Some Note Title]] from rule 6 still work — they are not blocks.)
 8. If Daniel asks to check / scrape / review his LinkedIn, what to post next, a content idea, or a new LinkedIn post, call \`suggestLinkedInPost\`. Present the returned \`post\` verbatim (optionally one short framing sentence first) — do NOT rewrite it.`;
 
   const system = [preamble, agent.system + reasoningRules].filter(Boolean).join("\n\n");
 
+  // Hard guarantee (belt-and-suspenders with the prompt rule above): rewrite em/en dashes out of the
+  // streamed text so one can NEVER reach the UI, whatever the model emits. Touches only text deltas;
+  // tool calls and every other stream part pass through untouched.
+  const stripDashes = () =>
+    new TransformStream<any, any>({
+      transform(part, controller) {
+        if (part?.type === "text-delta" && typeof part.textDelta === "string") {
+          controller.enqueue({ ...part, textDelta: part.textDelta.replace(/\s*[—–]\s*/g, ", ") });
+        } else {
+          controller.enqueue(part);
+        }
+      },
+    });
+
   const result = streamText({
     model: pickModel(),
     system,
+    experimental_transform: stripDashes,
     messages,
     // After the response completes, extract any durable memories and store them.
     // Fire-and-forget — does NOT block the response stream.

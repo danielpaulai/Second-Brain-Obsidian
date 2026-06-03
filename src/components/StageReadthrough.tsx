@@ -3,15 +3,13 @@
 import { useEffect, useRef } from "react";
 import { usePresentation } from "@/lib/presentation-store";
 import { useVoice } from "@/lib/voice-store";
-import { prepareSpeech } from "@/lib/tts";
-import { formatForStage } from "@/lib/stage-format";
 
 /**
  * Stage read-through driver. While a question is being answered, this paces the demo:
  * every beat it reveals ONE queued note — lighting its node on the left and showing its
  * card on the right — and once every retrieved node has been read AND the model's text is
- * ready, it pre-generates the voice, then reveals the answer text + plays the audio TOGETHER
- * (the cards/"thinking" stay up until the voice is ready, so text never appears voiceless).
+ * ready, it reveals the answer (raw markdown, rendered structured by StageAnswer). No TTS:
+ * only the opening greeting speaks; every answer is silent + on-screen.
  */
 const READ_MS = 720; // per-node cadence — deliberate, readable
 
@@ -32,7 +30,9 @@ export default function StageReadthrough() {
       if (s.pendingAnswer != null && !revealing.current) {
         revealing.current = true;
         clearInterval(tick);
-        void revealWhenVoiceReady(s.pendingAnswer);
+        // No TTS: reveal the raw markdown answer; StageAnswer renders it (structured or plain).
+        usePresentation.getState().revealAnswer(s.pendingAnswer);
+        useVoice.getState().setPhase("idle");
       }
       // else: still waiting on the model — hold (cards stay up).
     }, READ_MS);
@@ -40,23 +40,4 @@ export default function StageReadthrough() {
   }, [active]);
 
   return null;
-}
-
-/**
- * Split the answer into a clean on-screen `display` + a TTS-optimised `voice` (gpt → JSON),
- * pre-fetch the voice (keeping "thinking" up), then reveal the display text + start the audio
- * together — so text + voice land in the same beat, and the screen text is clean while the
- * spoken version is voice-optimised.
- */
-export async function revealWhenVoiceReady(text: string) {
-  useVoice.getState().setPhase("thinking");
-  const { display, voice } = await formatForStage(text);
-  const play = await prepareSpeech(voice); // resolves only once the clip is generated
-  usePresentation.getState().revealAnswer(display); // reveal the clean display text…
-  if (play) {
-    useVoice.getState().setPhase("speaking");
-    play(() => useVoice.getState().setPhase("idle")); // …and start the audio in the same beat
-  } else {
-    useVoice.getState().setPhase("idle");
-  }
 }

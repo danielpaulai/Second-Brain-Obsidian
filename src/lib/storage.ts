@@ -39,7 +39,8 @@ export async function readText(key: string): Promise<string | null> {
       const blobKey = `vault/${key}`;
       const info = await head(blobKey, { token: BLOB_TOKEN });
       if (!info?.url) return null;
-      const res = await fetch(info.url);
+      // Private store — the blob URL 403s without the token on the request.
+      const res = await fetch(info.url, { headers: { Authorization: `Bearer ${BLOB_TOKEN}` } });
       if (!res.ok) return null;
       return await res.text();
     } catch {

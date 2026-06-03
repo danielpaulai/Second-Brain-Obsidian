@@ -30,8 +30,8 @@ type Props = {
   onBrainQuery: (noteTitles: string[]) => void;
   /** RETRIEVED notes — fired live as each brain tool call resolves (the "actively querying" moment). */
   onResearch?: (noteTitles: string[]) => void;
-  /** A new query has begun — reset highlight/ignition state. */
-  onQueryStart?: () => void;
+  /** A new query has begun — reset highlight/ignition state. Receives the user's query text. */
+  onQueryStart?: (query: string) => void;
   agent: AgentId;
   onAgentChange: (a: AgentId) => void;
 };
@@ -116,16 +116,17 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     if (isLoading && !prevLoading.current) {
       seenTools.current.clear();
       lastStreamLenRef.current = 0;
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const userText = typeof lastUser?.content === "string" ? lastUser.content : "";
       if (usePresentation.getState().mode === "stage") {
-        const lastUser = [...messages].reverse().find((m) => m.role === "user");
-        const txt = (lastUser?.content ?? "").toLowerCase();
+        const txt = userText.toLowerCase();
         const isLinkedIn =
           /linked\s?in/.test(txt) &&
-          /(scrape|check|review|look|post|content|publish|next|idea|analy)/.test(txt);
-        if (isLinkedIn) usePresentation.getState().startLinkedInScrape();
+          /(scrape|check|review|look|post|content|publish|next|idea|analy|working|audit|profile)/.test(txt);
+        if (isLinkedIn) usePresentation.getState().startLinkedInScrape(userText);
         else usePresentation.getState().startQuery();
       }
-      onQueryStart?.();
+      onQueryStart?.(userText);
     }
     prevLoading.current = isLoading;
   }, [isLoading, onQueryStart, messages]);

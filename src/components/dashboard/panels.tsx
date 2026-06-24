@@ -52,7 +52,21 @@ const ACT_ICON: Record<ActivityKind, PhIcon> = {
 
 /* ─────────────────── hero KPI band ─────────────────── */
 
-export function StatBand({ kpis = KPIS }: { kpis?: DashKpi[] }) {
+export function StatBand({ kpis = KPIS, loading = false }: { kpis?: DashKpi[]; loading?: boolean }) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Panel key={i} className="min-h-[148px]">
+            <div className="lead-shimmer h-3 w-24" />
+            <div className="lead-shimmer mt-3.5 h-7 w-28" />
+            <div className="lead-shimmer mt-2 h-2.5 w-20" />
+            <div className="lead-shimmer mt-auto h-[34px] w-full" />
+          </Panel>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {kpis.map((k) => (
@@ -76,7 +90,19 @@ export function StatBand({ kpis = KPIS }: { kpis?: DashKpi[] }) {
 
 /* ─────────────────── secondary mini-stat strip ─────────────────── */
 
-export function MiniStatStrip({ stats = MINI_STATS }: { stats?: MiniStat[] }) {
+export function MiniStatStrip({ stats = MINI_STATS, loading = false }: { stats?: MiniStat[]; loading?: boolean }) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3">
+            <div className="lead-shimmer h-4 w-12" />
+            <div className="lead-shimmer mt-2.5 h-2.5 w-16" />
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
       {stats.map((s) => (
@@ -216,7 +242,7 @@ export function CampaignsTable() {
 
 type FeedItem = { id: number; act: Activity; time: string };
 
-export function LiveFeed({ activity = ACTIVITY_LOOP }: { activity?: Activity[] }) {
+export function LiveFeed({ activity = ACTIVITY_LOOP, loading = false }: { activity?: Activity[]; loading?: boolean }) {
   const [items, setItems] = useState<FeedItem[]>([]);
 
   useEffect(() => {
@@ -256,6 +282,19 @@ export function LiveFeed({ activity = ACTIVITY_LOOP }: { activity?: Activity[] }
         </span>
       }
     >
+      {loading ? (
+        <div className="flex flex-col gap-3 pt-1">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-start gap-2.5">
+              <div className="lead-shimmer h-7 w-7 rounded-lg" />
+              <div className="flex-1">
+                <div className="lead-shimmer h-2.5 w-20" />
+                <div className="lead-shimmer mt-1.5 h-3 w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="relative flex-1 overflow-hidden">
         <AnimatePresence initial={false}>
           {items.map((it) => {
@@ -290,6 +329,7 @@ export function LiveFeed({ activity = ACTIVITY_LOOP }: { activity?: Activity[] }
           })}
         </AnimatePresence>
       </div>
+      )}
     </Panel>
   );
 }
@@ -302,7 +342,13 @@ function fmtWhen(w: string): string {
   return w; // already a human string
 }
 
-export function MeetingsPanel({ meetings }: { meetings?: { upcoming: DashMeeting[]; last: DashMeeting | null } }) {
+export function MeetingsPanel({
+  meetings,
+  loading = false,
+}: {
+  meetings?: { upcoming: DashMeeting[]; last: DashMeeting | null };
+  loading?: boolean;
+}) {
   const upcoming = meetings?.upcoming ?? [];
   const last = meetings?.last ?? null;
   const next = upcoming[0];
@@ -316,7 +362,7 @@ export function MeetingsPanel({ meetings }: { meetings?: { upcoming: DashMeeting
       glow="#22d3ee"
       className="h-full"
       right={
-        next ? (
+        !loading && next ? (
           <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
             <StatusDot color="#34d399" pulse />
             LIVE
@@ -324,7 +370,13 @@ export function MeetingsPanel({ meetings }: { meetings?: { upcoming: DashMeeting
         ) : undefined
       }
     >
-      {next ? (
+      {loading ? (
+        <div className="flex flex-col gap-2.5 pt-1">
+          <div className="lead-shimmer h-[88px] w-full rounded-xl" />
+          <div className="lead-shimmer h-3 w-3/4" />
+          <div className="lead-shimmer h-3 w-2/3" />
+        </div>
+      ) : next ? (
         <div className="rounded-xl border border-cyan-300/20 bg-cyan-400/[0.05] p-3.5">
           <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-cyan-200/70">
             <CalendarBlank size={12} weight="fill" /> Next up
@@ -355,7 +407,7 @@ export function MeetingsPanel({ meetings }: { meetings?: { upcoming: DashMeeting
         </div>
       )}
 
-      {rest.length > 0 && (
+      {!loading && rest.length > 0 && (
         <div className="mt-3 flex flex-col">
           {rest.map((m, i) => (
             <div key={i} className="flex items-center justify-between gap-2 border-t border-white/[0.05] py-2">
@@ -376,7 +428,7 @@ export function MeetingsPanel({ meetings }: { meetings?: { upcoming: DashMeeting
         </div>
       )}
 
-      {last && (
+      {!loading && last && (
         <div className="mt-3 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-[11px]">
           <span className="text-white/35">Last meeting · </span>
           <span className="text-white/75">{last.title}</span>

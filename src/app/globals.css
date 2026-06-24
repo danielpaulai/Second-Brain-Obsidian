@@ -92,9 +92,19 @@ body {
 @keyframes dot-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.08); } }
 .dot-breathe { animation: dot-breathe 3.2s ease-in-out infinite; }
 
+/* Brain-graph idle "living" wash — the nodes subtly shift colour + glow, like the
+   orb did. A gentle on-theme hue oscillation (cyan ↔ violet) with a soft
+   brightness/saturation swell. Applied to the canvas wrapper on /jarvis (BrainOrb);
+   GPU-cheap (a single composited filter), and pure-white labels stay readable. */
+@keyframes brain-ambient {
+  0%, 100% { filter: hue-rotate(-22deg) saturate(1.08) brightness(0.98); }
+  50%      { filter: hue-rotate(48deg)  saturate(1.34) brightness(1.14); }
+}
+.brain-ambient { animation: brain-ambient 12s ease-in-out infinite; will-change: filter; }
+
 /* Reduced-motion kill switch */
 @media (prefers-reduced-motion: reduce) {
-  .blob-a, .blob-b, .dot-breathe, .moving-border::before { animation: none !important; }
+  .blob-a, .blob-b, .dot-breathe, .moving-border::before, .brain-ambient { animation: none !important; }
 }
 
 /* ── Rich text (tiptap) editor content — restore element styling that Tailwind

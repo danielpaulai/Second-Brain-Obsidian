@@ -168,17 +168,17 @@ function Anchor(p: MdProps) {
 // A high-end glass markdown TABLE (overrides Streamdown's default table + its download toolbar).
 const mdTable = {
   table: (p: MdProps) => (
-    <div className="my-[0.7em] overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025]" data-lenis-prevent>
+    <div className="my-[0.7em] overflow-x-auto rounded-xl border border-white/[0.16] bg-white/[0.05] shadow-[0_8px_30px_-18px_rgba(0,0,0,0.7)]" data-lenis-prevent>
       <table className="w-full border-collapse text-[0.92em]" {...strip(p)} />
     </div>
   ),
-  thead: (p: MdProps) => <thead {...strip(p)} />,
+  thead: (p: MdProps) => <thead className="bg-white/[0.07]" {...strip(p)} />,
   tbody: (p: MdProps) => <tbody {...strip(p)} />,
-  tr: (p: MdProps) => <tr className="border-b border-white/[0.06] last:border-0 transition-colors hover:bg-white/[0.03]" {...strip(p)} />,
+  tr: (p: MdProps) => <tr className="border-b border-white/[0.09] last:border-0 transition-colors even:bg-white/[0.022] hover:bg-cyan-300/[0.06]" {...strip(p)} />,
   th: (p: MdProps) => (
-    <th className="border-b border-white/10 px-3.5 py-2 text-left text-[0.78em] font-semibold uppercase tracking-[0.1em] text-cyan-300/70" {...strip(p)} />
+    <th className="border-b border-white/20 px-3.5 py-2.5 text-left text-[0.78em] font-semibold uppercase tracking-[0.1em] text-cyan-200/95" {...strip(p)} />
   ),
-  td: (p: MdProps) => <td className="px-3.5 py-2 align-top leading-snug text-white/80" {...strip(p)} />,
+  td: (p: MdProps) => <td className="px-3.5 py-2 align-top leading-snug text-white/90" {...strip(p)} />,
 };
 
 // Flowing prose for plain text blocks. Em-based so a parent font-size scales it.
@@ -311,7 +311,7 @@ function ListPanel({
   const counts = useRowTyper(rows, play, { onDone });
   if (!rows.length) return null;
   return (
-    <RevealCard className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-xl">
+    <RevealCard className="rounded-2xl border border-white/[0.14] bg-white/[0.055] p-4 shadow-[0_10px_34px_-22px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       <RevealItem className={cn("mb-3 text-[11px] font-semibold uppercase tracking-[0.18em]", accent)}>{title}</RevealItem>
       <RevealStagger className="space-y-2" stagger={0.045}>
         {rows.map((r, i) => (
@@ -388,7 +388,7 @@ function Timeline({ title, body, play, onDone }: { title: string; body: string; 
   const counts = useRowTyper(events.map((e) => e.detail || ""), play, { onDone });
   if (!events.length) return null;
   return (
-    <RevealCard className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-xl">
+    <RevealCard className="rounded-2xl border border-white/[0.14] bg-white/[0.055] p-4 shadow-[0_10px_34px_-22px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       {title && <RevealItem className="mb-[0.9em] text-[0.72em] font-semibold uppercase tracking-[0.18em] text-cyan-300/80">{title}</RevealItem>}
       <RevealStagger className="relative pl-[1.6em]">
         <RevealItem variant="rail" as="span" className="absolute bottom-[0.4em] left-[0.55em] top-[0.4em] w-[1.5px] origin-top bg-gradient-to-b from-cyan-400/60 via-cyan-300/25 to-transparent" />
@@ -417,7 +417,7 @@ function Steps({ title, body, play, onDone }: { title: string; body: string; pla
   const counts = useRowTyper(steps.map((s) => s.desc || ""), play, { onDone });
   if (!steps.length) return null;
   return (
-    <RevealCard className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-xl">
+    <RevealCard className="rounded-2xl border border-white/[0.14] bg-white/[0.055] p-4 shadow-[0_10px_34px_-22px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       {title && (
         <RevealItem className="mb-[0.9em] bg-gradient-to-r from-violet-300/90 to-cyan-300/80 bg-clip-text text-[0.72em] font-semibold uppercase tracking-[0.18em] text-transparent">
           {title}
@@ -638,7 +638,7 @@ function Meter({ title, body, play, onDone }: { title: string; body: string; pla
   useDoneAfter(play, 520 + rows.length * 80 + 750, onDone);
   if (!rows.length) return null;
   return (
-    <RevealCard className="rounded-2xl border border-white/10 bg-white/[0.04] p-[1.1em] backdrop-blur-xl">
+    <RevealCard className="rounded-2xl border border-white/[0.14] bg-white/[0.055] p-[1.1em] shadow-[0_10px_34px_-22px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       {title && <RevealItem className="mb-[0.9em] text-[0.72em] font-semibold uppercase tracking-[0.16em] text-white/45">{title}</RevealItem>}
       <RevealStagger className="space-y-[0.8em]">
         {rows.map((r, i) => {
@@ -671,7 +671,7 @@ function Bars({ title, body, play, onDone }: { title: string; body: string; play
   if (!rows.length) return null;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return (
-    <RevealCard className="rounded-2xl border border-white/10 bg-white/[0.035] p-[1.1em] backdrop-blur-xl">
+    <RevealCard className="rounded-2xl border border-white/[0.14] bg-white/[0.055] p-[1.1em] shadow-[0_10px_34px_-22px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       {title && <RevealItem className="mb-[0.9em] text-[0.72em] font-semibold uppercase tracking-[0.16em] text-cyan-300/80">{title}</RevealItem>}
       <RevealStagger className="space-y-[0.65em]">
         {rows.map((r, i) => {
@@ -727,19 +727,19 @@ function Table({ title, body, play, onDone }: { title: string; body: string; pla
   useDoneAfter(play, 420 + rows.length * 80, onDone);
   if (!headers.length) return null;
   return (
-    <RevealCard className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl">
+    <RevealCard className="overflow-hidden rounded-2xl border border-white/[0.14] bg-white/[0.05] shadow-[0_10px_36px_-20px_rgba(0,0,0,0.75)] backdrop-blur-xl">
       {title && (
         <RevealItem className="px-4 pt-4 text-[0.72em] font-semibold uppercase tracking-[0.18em] text-cyan-300/80">{title}</RevealItem>
       )}
       <RevealItem className="overflow-x-auto px-1 pb-1 pt-2" data-lenis-prevent>
         <table className="w-full border-collapse text-[13px]">
-          <thead>
+          <thead className="bg-white/[0.06]">
             <tr>
               {headers.map((h, i) => (
                 <th
                   key={i}
                   className={cn(
-                    "border-b border-white/10 px-3.5 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/40",
+                    "border-b border-white/20 px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/70",
                     i > 0 && isNumericCell(rows[0]?.[i] ?? "") ? "text-right" : "text-left"
                   )}
                 >
@@ -750,7 +750,7 @@ function Table({ title, body, play, onDone }: { title: string; body: string; pla
           </thead>
           <tbody>
             {rows.map((r, ri) => (
-              <tr key={ri} className="border-b border-white/[0.05] transition-colors last:border-0 hover:bg-white/[0.03]">
+              <tr key={ri} className="border-b border-white/[0.08] transition-colors even:bg-white/[0.022] last:border-0 hover:bg-cyan-300/[0.06]">
                 {headers.map((_, ci) => {
                   const cell = r[ci] ?? "";
                   const numeric = ci > 0 && isNumericCell(cell);

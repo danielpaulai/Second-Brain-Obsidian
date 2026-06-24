@@ -7,7 +7,7 @@ import { node } from "@/lib/org";
 import { Blocks, parseBlocks } from "@/components/blocks/Blocks";
 import CarouselArtifact from "./CarouselArtifact";
 import LeadsArtifact from "./LeadsArtifact";
-import KronosOrb from "./KronosOrb";
+import BrainOrb from "./BrainOrb";
 import type { JarvisRunState } from "./useJarvisRun";
 
 /**
@@ -28,7 +28,6 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
   const latest = state.feed[state.feed.length - 1];
 
   const orbColor = activeNode?.color ?? "#22d3ee";
-  const orbIntensity = state.running ? 1 : state.done ? 0.55 : 0.4;
 
   // memoize so the streamed reveal doesn't restart on unrelated re-renders
   const blocks = useMemo(() => (state.response ? parseBlocks(state.response) : []), [state.response]);
@@ -42,7 +41,7 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
   const activeKey = tab && deliverables.some((d) => d.key === tab) ? tab : deliverables[0]?.key;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[20px] border border-white/10 bg-gradient-to-b from-white/[0.045] via-white/[0.014] to-transparent shadow-[0_30px_80px_-42px_rgba(0,0,0,0.92)] ring-1 ring-inset ring-white/[0.04] backdrop-blur-2xl">
+    <div className="flex h-full flex-col overflow-hidden rounded-[20px] border border-white/12 bg-gradient-to-b from-white/[0.07] via-white/[0.025] to-transparent shadow-[0_30px_80px_-42px_rgba(0,0,0,0.92)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl">
       {/* deliverable tabs — only when the team produced more than one */}
       {deliverables.length > 1 && (
         <div className="flex shrink-0 items-center gap-1 border-b border-white/[0.07] px-3 py-2">
@@ -76,7 +75,7 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
             </motion.div>
           ) : activeKey === "report" && blocks.length > 0 ? (
             <motion.div key="report" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
-              <div ref={scrollRef} data-lenis-prevent className="h-full overflow-y-auto px-4 py-4 text-[13.5px] leading-relaxed">
+              <div ref={scrollRef} data-lenis-prevent className="h-full overflow-y-auto bg-gradient-to-b from-white/[0.055] via-white/[0.02] to-transparent px-4 py-4 text-[13.5px] leading-relaxed">
                 <Blocks blocks={blocks} stream scrollRef={scrollRef} />
               </div>
             </motion.div>
@@ -86,12 +85,13 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center"
+              className="absolute inset-0"
             >
-              <div className="relative aspect-square w-full max-w-[min(38vh,290px)] shrink-0">
-                <KronosOrb className="absolute inset-0 h-full w-full" color={orbColor} intensity={orbIntensity} pulseKey={state.pulse} />
-              </div>
-              <div className="flex min-h-[64px] max-w-[280px] items-start justify-center">
+              {/* the founder's second brain — the same Synaptic Bloom graph as /stage */}
+              <BrainOrb />
+              {/* vignette so the status text stays readable over the network */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-[#02040a] via-[#02040a]/75 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-6 pb-6 text-center">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={`${activeNode?.id ?? "idle"}-${latest?.id ?? 0}`}
@@ -99,6 +99,7 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.3 }}
+                    className="max-w-[300px]"
                   >
                     {idle ? (
                       <div>

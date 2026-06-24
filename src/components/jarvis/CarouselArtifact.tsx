@@ -120,8 +120,8 @@ export default function CarouselArtifact({ data }: { data: CarouselArtifactData 
       {/* ambient bloom — breathes, tinted to the active slide */}
       <motion.div
         className="pointer-events-none absolute inset-8 rounded-[40%]"
-        style={{ background: `radial-gradient(60% 55% at 50% 38%, ${accent}38, transparent 72%)`, filter: "blur(40px)" }}
-        animate={{ opacity: [0.45, 0.62, 0.45] }}
+        style={{ background: `radial-gradient(60% 55% at 50% 38%, ${accent}4d, transparent 72%)`, filter: "blur(40px)" }}
+        animate={{ opacity: [0.55, 0.8, 0.55] }}
         transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
       />
 
@@ -132,7 +132,7 @@ export default function CarouselArtifact({ data }: { data: CarouselArtifactData 
           {/* floor glow — the slide reads as a floating object */}
           <div
             className="pointer-events-none absolute -bottom-4 left-1/2 h-8 w-[82%] -translate-x-1/2 rounded-[50%]"
-            style={{ background: accent, opacity: 0.28, filter: "blur(22px)" }}
+            style={{ background: accent, opacity: 0.4, filter: "blur(22px)" }}
           />
           <AnimatePresence custom={dir} mode="popLayout" initial={false}>
             <motion.div
@@ -150,7 +150,7 @@ export default function CarouselArtifact({ data }: { data: CarouselArtifactData 
               className="absolute inset-0 cursor-grab overflow-hidden rounded-[22px] active:cursor-grabbing"
               style={{
                 background: slide?.image ? "rgba(6,9,18,0.92)" : `radial-gradient(130% 90% at 18% -8%, ${accent}28, rgba(6,9,18,0.96) 60%)`,
-                boxShadow: `0 44px 120px -34px ${accent}66, 0 18px 50px -28px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.10)`,
+                boxShadow: `0 50px 130px -30px ${accent}8c, 0 18px 50px -28px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.12)`,
               }}
             >
               {slide?.image ? (

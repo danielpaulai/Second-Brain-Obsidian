@@ -34,8 +34,8 @@ import {
 } from "@/lib/dashboard-data";
 import { Counter, Meter, Panel, Sparkline, StatusDot, TrendChip } from "./ui";
 
-/** A KPI for the band — same as the demo KPI but the sparkline is optional (live KPIs have no history). */
-type DashKpi = Omit<Kpi, "spark"> & { spark?: number[] };
+/** A KPI for the band — same as the demo KPI but the sparkline is optional (live KPIs have no history) and it can carry its source app. */
+type DashKpi = Omit<Kpi, "spark"> & { spark?: number[]; source?: string };
 
 /** A meeting row for the live meetings panel (PII-free: counts, titles, times only). */
 export type DashMeeting = { title: string; when: string; durationMins?: number | null; attendees?: number | null; platform?: string | null };
@@ -71,9 +71,14 @@ export function StatBand({ kpis = KPIS, loading = false }: { kpis?: DashKpi[]; l
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {kpis.map((k) => (
         <Panel key={k.key} glow={k.color} className="min-h-[148px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/45">{k.label}</span>
-            {k.delta !== 0 && <TrendChip delta={k.delta} />}
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[11px] font-medium uppercase tracking-[0.14em] text-white/45">{k.label}</span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {k.source && (
+                <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium text-white/40">{k.source}</span>
+              )}
+              {k.delta !== 0 && <TrendChip delta={k.delta} />}
+            </div>
           </div>
           <div className="mt-2 text-[30px] font-bold leading-none tracking-tight text-white">
             <Counter value={k.value} format={k.format} />

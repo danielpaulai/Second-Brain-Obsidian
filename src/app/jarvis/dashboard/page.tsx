@@ -2,26 +2,32 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Lightning, Pulse, ArrowsClockwise } from "@phosphor-icons/react";
-import { Panel, Rise } from "@/components/dashboard/ui";
 import {
-  ChannelDonut,
-  FunnelPanel,
-  LeadsBar,
-  ReachChart,
-  RevenueChart,
-} from "@/components/dashboard/charts";
-import {
-  CampaignsTable,
-  DepartmentGrid,
-  LiveFeed,
-  MeetingsPanel,
-  MiniStatStrip,
-  StatBand,
-} from "@/components/dashboard/panels";
+  ArrowLeft,
+  Lightning,
+  Pulse,
+  ArrowsClockwise,
+  EnvelopeSimple,
+  CalendarBlank,
+  ChatCircleDots,
+  Notebook,
+  VideoCamera,
+  FolderSimple,
+  LinkedinLogo,
+  type Icon as PhIcon,
+} from "@phosphor-icons/react";
+import { Panel, Rise, StatusDot } from "@/components/dashboard/ui";
+import { LiveFeed, MeetingsPanel, MiniStatStrip, StatBand } from "@/components/dashboard/panels";
 import { BRAND, type ActivityKind } from "@/lib/dashboard-data";
 
-/* ─── live data from the founder's connected apps (Zapier MCP) ─── */
+/**
+ * `/jarvis/dashboard` — a REAL-data cockpit. Everything except the financial
+ * metrics is pulled live from the founder's connected apps via Zapier MCP
+ * (Gmail, Calendar, Slack, Notion, Zoom, Drive, LinkedIn). The financials are
+ * the only placeholders — they'd need a Stripe connection we deliberately skip.
+ */
+
+/* ─── live data from the connected apps (Zapier MCP) ─── */
 
 type DashMeeting = { title: string; when: string; durationMins?: number | null; attendees?: number | null; platform?: string | null };
 type LiveResp = {
@@ -30,14 +36,14 @@ type LiveResp = {
   cached?: boolean;
   note?: string;
   data?: {
-    kpis: { key: string; label: string; value: number; format: "currency" | "compact" | "number" | "percent"; delta: number; caption: string }[];
+    kpis: { key: string; label: string; value: number; format: "currency" | "compact" | "number" | "percent"; delta: number; caption: string; source: string }[];
     miniStats: { label: string; value: string; delta: number }[];
     meetings: { upcoming: DashMeeting[]; last: DashMeeting | null };
     activity: { source: string; text: string }[];
   };
 };
 
-const KPI_COLORS = [BRAND.emerald, BRAND.cyan, BRAND.amber, BRAND.violet];
+const KPI_COLORS = [BRAND.cyan, BRAND.violet, BRAND.amber, BRAND.emerald];
 const MINI_COLORS = [BRAND.cyan, BRAND.amber, BRAND.emerald, BRAND.violet, BRAND.fuchsia, BRAND.sky];
 const SRC: Record<string, { color: string; kind: ActivityKind }> = {
   Calendar: { color: BRAND.cyan, kind: "route" },
@@ -50,12 +56,23 @@ const SRC: Record<string, { color: string; kind: ActivityKind }> = {
   Other: { color: BRAND.cyan, kind: "route" },
 };
 
-/**
- * `/jarvis/dashboard` — the showcase cockpit. A full-bleed, scrollable
- * mission-control analytics surface (revenue, pipeline, leads, reach, the
- * C-suite at work, live agent feed) running entirely on dummy telemetry. Opened
- * in a new tab from the "Open dashboard" button on the /jarvis page.
- */
+/* fake financials — the ONLY placeholder data (Stripe deliberately not connected) */
+const FINANCIALS = [
+  { label: "MRR", value: "$284.9k", sub: "Recurring revenue", color: BRAND.emerald },
+  { label: "Open pipeline", value: "$1.24M", sub: "64 deals", color: BRAND.cyan },
+  { label: "ARR", value: "$3.4M", sub: "Annual run-rate", color: BRAND.violet },
+  { label: "Avg deal size", value: "$19.4k", sub: "Won deals", color: BRAND.amber },
+];
+
+const CONNECTED: { name: string; Icon: PhIcon; color: string }[] = [
+  { name: "Gmail", Icon: EnvelopeSimple, color: BRAND.amber },
+  { name: "Google Calendar", Icon: CalendarBlank, color: BRAND.cyan },
+  { name: "Slack", Icon: ChatCircleDots, color: BRAND.violet },
+  { name: "Notion", Icon: Notebook, color: BRAND.sky },
+  { name: "Zoom", Icon: VideoCamera, color: BRAND.emerald },
+  { name: "Google Drive", Icon: FolderSimple, color: BRAND.gold },
+  { name: "LinkedIn", Icon: LinkedinLogo, color: BRAND.fuchsia },
+];
 
 export default function DashboardPage() {
   const [resp, setResp] = useState<LiveResp | null>(null);
@@ -86,7 +103,6 @@ export default function DashboardPage() {
 
   return (
     <div className="relative min-h-screen w-full bg-[#02040a] text-white">
-      {/* deep field + faint grid (matches the HUD) */}
       <div
         className="pointer-events-none fixed inset-0"
         style={{ background: "radial-gradient(130% 90% at 50% 0%, #070c18 0%, #02040a 55%, #010207 100%)" }}
@@ -101,115 +117,50 @@ export default function DashboardPage() {
           WebkitMaskImage: "radial-gradient(130% 80% at 50% 0%, #000 25%, transparent 80%)",
         }}
       />
-      {/* aurora accents */}
       <div className="blob-a pointer-events-none fixed -left-32 top-24 h-[420px] w-[420px] rounded-full bg-cyan-500/[0.07] blur-[120px]" />
       <div className="blob-b pointer-events-none fixed -right-28 top-1/3 h-[460px] w-[460px] rounded-full bg-violet-500/[0.07] blur-[130px]" />
 
       <TopBar status={status} loading={loading} onRefresh={() => load(true)} />
 
       <main className="relative z-10 mx-auto w-full max-w-[1400px] px-5 pb-16 pt-6 md:px-8">
-        {/* hero KPIs */}
+        {/* live metrics from the connected apps */}
+        <SectionHeader title="Live · your connected apps" />
         <Rise>
           <StatBand kpis={kpis} loading={loading} />
         </Rise>
-
-        {/* secondary stat strip */}
         <Rise delay={0.05} className="mt-4">
           <MiniStatStrip stats={miniStats} loading={loading} />
         </Rise>
 
-        {/* revenue + channel mix */}
+        {/* meetings + connected apps */}
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Rise delay={0.1} className="lg:col-span-2">
-            <Panel
-              title="Revenue & pipeline"
-              subtitle="Monthly · revenue vs open pipeline vs target"
-              accent="#34d399"
-              glow="#34d399"
-              right={<Legend items={[["Revenue", "#34d399"], ["Pipeline", "#22d3ee"], ["Target", "#ffffff66"]]} />}
-            >
-              <div className="h-[260px] w-full">
-                <RevenueChart />
-              </div>
-            </Panel>
-          </Rise>
-          <Rise delay={0.15}>
-            <Panel title="Channel mix" subtitle="Where pipeline originates" accent="#22d3ee" glow="#22d3ee" className="h-full">
-              <div className="h-[260px] w-full">
-                <ChannelDonut />
-              </div>
-            </Panel>
-          </Rise>
-        </div>
-
-        {/* leads + reach */}
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Rise delay={0.18}>
-            <Panel
-              title="Leads sourced"
-              subtitle="Weekly · scraped vs qualified"
-              accent="#f59e0b"
-              glow="#f59e0b"
-              right={<Legend items={[["Scraped", "#f59e0b"], ["Qualified", "#22d3ee"]]} />}
-            >
-              <div className="h-[240px] w-full">
-                <LeadsBar />
-              </div>
-            </Panel>
-          </Rise>
-          <Rise delay={0.22}>
-            <Panel
-              title="Audience reach"
-              subtitle="Daily · impressions vs engaged"
-              accent="#a78bfa"
-              glow="#a78bfa"
-              right={<Legend items={[["Reach", "#a78bfa"], ["Engaged", "#d946ef"]]} />}
-            >
-              <div className="h-[240px] w-full">
-                <ReachChart />
-              </div>
-            </Panel>
-          </Rise>
-        </div>
-
-        {/* the C-suite at work */}
-        <div className="mt-7 mb-3 flex items-center gap-2.5">
-          <h2 className="text-[13px] font-semibold uppercase tracking-[0.2em] text-white/55">The C-suite at work</h2>
-          <div className="h-px flex-1 bg-gradient-to-r from-white/12 to-transparent" />
-        </div>
-        <Rise delay={0.26}>
-          <DepartmentGrid />
-        </Rise>
-
-        {/* campaigns + live feed + funnel */}
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Rise delay={0.3} className="lg:col-span-2">
-            <CampaignsTable />
-          </Rise>
-          <Rise delay={0.34}>
-            <LiveFeed activity={activity} loading={loading} />
-          </Rise>
-        </div>
-
-        {/* meetings (live · calendar + zoom) + conversion funnel */}
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Rise delay={0.38}>
             <MeetingsPanel meetings={meetings} loading={loading} />
           </Rise>
-          <Rise delay={0.42} className="lg:col-span-2">
-            <Panel title="Conversion funnel" subtitle="Sourced → won · this quarter" accent="#22d3ee" glow="#38bdf8">
-              <FunnelPanel />
-            </Panel>
+          <Rise delay={0.14}>
+            <ConnectedApps />
           </Rise>
         </div>
 
-        {/* system status */}
-        <Rise delay={0.46} className="mt-4">
-          <SystemPanel />
+        {/* live activity, spanning every app */}
+        <Rise delay={0.18} className="mt-4">
+          <LiveFeed activity={activity} loading={loading} />
+        </Rise>
+
+        {/* financials — the only placeholders (no Stripe connection) */}
+        <div className="mt-8 mb-3 flex items-center gap-2.5">
+          <h2 className="text-[13px] font-semibold uppercase tracking-[0.2em] text-white/55">Financials</h2>
+          <span className="rounded-full border border-amber-400/25 bg-amber-400/[0.08] px-2 py-0.5 text-[9.5px] font-medium uppercase tracking-wider text-amber-300">
+            Demo · connect Stripe for live
+          </span>
+          <div className="h-px flex-1 bg-gradient-to-r from-white/12 to-transparent" />
+        </div>
+        <Rise delay={0.22}>
+          <FinancialStrip />
         </Rise>
 
         <p className="mt-8 text-center text-[11px] text-white/25">
-          Second Brain · autonomous GTM operating system · demonstration data
+          Second Brain · live from your connected apps via Zapier · financials are placeholder until Stripe is connected
         </p>
       </main>
     </div>
@@ -257,11 +208,11 @@ function TopBar({
                 Mission Control
               </span>
             </div>
-            <div className="text-[10.5px] text-white/35">Autonomous GTM operating system</div>
+            <div className="text-[10.5px] text-white/35">Live operating dashboard</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <span
             className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-medium sm:flex ${
               status === "live"
@@ -298,45 +249,51 @@ function TopBar({
   );
 }
 
-/* ─────────────────── small helpers ─────────────────── */
+/* ─────────────────── small pieces ─────────────────── */
 
-function Legend({ items }: { items: [string, string][] }) {
+function SectionHeader({ title }: { title: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      {items.map(([label, color]) => (
-        <span key={label} className="flex items-center gap-1.5 text-[10.5px] text-white/50">
-          <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-          {label}
-        </span>
+    <div className="mb-3 flex items-center gap-2.5">
+      <h2 className="text-[13px] font-semibold uppercase tracking-[0.2em] text-white/55">{title}</h2>
+      <div className="h-px flex-1 bg-gradient-to-r from-white/12 to-transparent" />
+    </div>
+  );
+}
+
+function FinancialStrip() {
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {FINANCIALS.map((f) => (
+        <Panel key={f.label} glow={f.color} className="min-h-[110px]">
+          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/45">{f.label}</span>
+          <div className="mt-2 text-[26px] font-bold leading-none tracking-tight text-white" style={{ textShadow: `0 0 22px ${f.color}33` }}>
+            {f.value}
+          </div>
+          <div className="mt-auto pt-3 text-[11px] text-white/40">{f.sub}</div>
+        </Panel>
       ))}
     </div>
   );
 }
 
-const SYSTEMS = [
-  { label: "KRONOS orchestrator", value: "Online", color: "#34d399" },
-  { label: "Apify · lead scraping", value: "Connected", color: "#34d399" },
-  { label: "Research · web", value: "Connected", color: "#34d399" },
-  { label: "Content engine", value: "Active", color: "#34d399" },
-  { label: "Image generation", value: "Standby", color: "#fbbf24" },
-];
-
-function SystemPanel() {
+function ConnectedApps() {
   return (
-    <Panel title="System status" subtitle="Connected services" accent="#34d399" glow="#34d399" className="h-full">
-      <div className="flex flex-col gap-2.5">
-        {SYSTEMS.map((s) => (
-          <div key={s.label} className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-            <span className="text-[12px] text-white/65">{s.label}</span>
-            <span className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: s.color }}>
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.color, boxShadow: `0 0 8px ${s.color}` }} />
-              {s.value}
+    <Panel title="Connected apps" subtitle="Live via Zapier MCP" accent="#34d399" glow="#34d399" className="h-full">
+      <div className="flex flex-col gap-2">
+        {CONNECTED.map((a) => (
+          <div key={a.name} className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+            <span className="flex items-center gap-2.5 text-[12.5px] text-white/75">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg border" style={{ background: `${a.color}1a`, borderColor: `${a.color}40`, color: a.color }}>
+                <a.Icon size={15} weight="fill" />
+              </span>
+              {a.name}
+            </span>
+            <span className="flex items-center gap-1.5 text-[10.5px] font-medium text-emerald-300">
+              <StatusDot color="#34d399" pulse />
+              Connected
             </span>
           </div>
         ))}
-      </div>
-      <div className="mt-3 rounded-lg border border-cyan-400/15 bg-cyan-400/[0.04] px-3 py-2.5 text-[11px] text-cyan-100/70">
-        <span className="font-semibold text-cyan-200">99.98%</span> uptime · 4 departments · 6 specialists ready
       </div>
     </Panel>
   );

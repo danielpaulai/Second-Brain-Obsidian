@@ -32,11 +32,12 @@ const Meeting = z.object({
 
 const Kpi = z.object({
   key: z.string(),
-  label: z.string().describe("e.g. 'Meetings this week', 'Emails (7d)', 'Slack messages', 'Docs created', 'LinkedIn reach'"),
+  label: z.string().describe("e.g. 'Meetings this week', 'Emails (7d)', 'Slack messages', 'Docs created', 'LinkedIn reach', 'Files added'"),
   value: z.number(),
   format: z.enum(["currency", "compact", "number", "percent"]),
   delta: z.number().describe("percent change vs the prior period; 0 if unknown"),
   caption: z.string().describe("short context, e.g. 'Calendar · next 7 days'"),
+  source: z.enum(["Calendar", "Gmail", "Slack", "Notion", "Zoom", "LinkedIn", "Drive"]).describe("which connected app this metric came from"),
 });
 
 const MiniStat = z.object({ label: z.string(), value: z.string(), delta: z.number() });
@@ -60,17 +61,21 @@ export type DashboardLive = z.infer<typeof DashboardLiveSchema> & { generatedAt:
 
 const GATHER_SYSTEM = `You are a data-collection agent for a founder's executive dashboard. The founder has connected these apps via Zapier; call the relevant find / list / get / search tools to READ them: Google Calendar, Gmail, Slack, Notion, Zoom, Google Drive, LinkedIn.
 
-Pull a current snapshot, METRICS ONLY:
-- UPCOMING calendar/Zoom meetings for the next 7 days: title, start time, duration, attendee COUNT, platform.
-- The single most recent PAST meeting (title + when).
-- Counts over the last 7 days: emails received/sent, Slack messages or most active channels, Notion pages created/edited, Drive files added, LinkedIn posts and their reach/engagement if available.
-- Any other useful executive metric the tools expose.
+Pull a current snapshot, METRICS ONLY. SPREAD YOUR READS ACROSS ALL THE APPS — do NOT over-rely on Gmail (one or two Gmail metrics at most). Aim to read each of these:
+- Google Calendar + Zoom: UPCOMING meetings for the next 7 days (title, start time, duration, attendee COUNT, platform) and the single most recent PAST meeting.
+- Slack: message volume and/or the most active channels over the last 7 days.
+- Notion: pages/docs created or edited over the last 7 days.
+- Google Drive: files added/modified over the last 7 days.
+- LinkedIn: recent posts and their reach/engagement if available.
+- Gmail: a simple email volume count (received/sent) — keep this to 1 metric, do not dump inbox contents.
 
 HARD PRIVACY RULES, no exceptions: never output, repeat or summarise email addresses, phone numbers, message bodies, or individual people's names beyond what already appears in a meeting title. Report COUNTS, TITLES and TIMES only. If a tool returns emails or message text, do NOT echo them.
 
-Be efficient: a handful of targeted tool calls, not exhaustive. Then write up exactly what you found as concise notes (counts, titles, times). If a tool errors or returns nothing, note it and move on.`;
+Be efficient but BROAD: a couple of targeted tool calls PER APP across Calendar, Zoom, Slack, Notion, Drive, LinkedIn and Gmail. Then write up exactly what you found as concise notes, grouped by app (counts, titles, times). If a tool errors or returns nothing, note it and move on.`;
 
-const SHAPE_SYSTEM = `Turn the collected notes into the dashboard JSON. Use ONLY data that is actually present in the notes — never invent or estimate numbers. If something wasn't found, return a shorter array or null rather than guessing. Keep it strictly PII-free: no email addresses, no phone numbers, no message bodies, attendee COUNTS only (never names). Choose the 4 strongest KPIs and up to 6 mini-stats from what is real.`;
+const SHAPE_SYSTEM = `Turn the collected notes into the dashboard JSON. Use ONLY data that is actually present in the notes — never invent or estimate numbers. If something wasn't found, return a shorter array or null rather than guessing. Keep it strictly PII-free: no email addresses, no phone numbers, no message bodies, attendee COUNTS only (never names).
+
+DIVERSITY RULE: the 4 KPIs must come from at least 3 DIFFERENT apps (set each KPI's "source"), and the mini-stats + activity feed must also span multiple apps. Do NOT let Gmail dominate — at most one Gmail KPI. Prefer a mix like: Meetings (Calendar/Zoom), Slack messages, Notion docs, Drive files, LinkedIn reach, and a single Emails count.`;
 
 /** Strip any email that slipped through (belt-and-suspenders on top of the prompt rules). */
 function scrubPii<T>(value: T): T {

@@ -50,11 +50,6 @@ const Kpi = z.object({
 
 const MiniStat = z.object({ label: z.string(), value: z.string(), delta: z.number() });
 
-const Activity = z.object({
-  source: z.enum(["Calendar", "Gmail", "Slack", "Notion", "Zoom", "LinkedIn", "Drive", "Other"]),
-  text: z.string().describe("a metric-level summary line (counts, titles, channels). NEVER an email address, phone number or message body."),
-});
-
 export const DashboardLiveSchema = z.object({
   kpis: z.array(Kpi).max(4).describe("the 4 strongest headline metrics you could actually pull"),
   miniStats: z.array(MiniStat).max(6),
@@ -62,7 +57,6 @@ export const DashboardLiveSchema = z.object({
     upcoming: z.array(Meeting).max(6).describe("next 7 days, soonest first"),
     last: Meeting.nullable().describe("the most recent PAST meeting, or null"),
   }),
-  activity: z.array(Activity).max(10).describe("recent app activity, newest first, metric-level + PII-free"),
 });
 
 export type DashboardLive = z.infer<typeof DashboardLiveSchema> & { generatedAt: number };
@@ -107,8 +101,7 @@ const SHAPE_SYSTEM = `Turn the EXECUTION RESULTS below into the dashboard JSON. 
 
 Build:
 - meetings.upcoming from the Calendar/Zoom records (title + start time + attendee count + platform), soonest first; meetings.last = the most recent past meeting if present, else null. If those records are empty, return upcoming:[] and last:null — do NOT fabricate meetings.
-- KPIs + mini-stats from the COUNTS of real records (e.g. "Meetings this week" = number of calendar events, "Slack messages" = count returned, "Notion pages" = count, "LinkedIn reach" if a number was returned, one "Emails (7d)" count).
-- activity from one short metric line per app that returned data.
+- KPIs + mini-stats from the COUNTS of real records (e.g. "Meetings this week" = number of calendar events, "Slack messages" = count returned, "Notion pages" = count, one "Emails (7d)" count).
 
 CRITICAL: never report counts of Zapier "actions / enabled tools / integrations / configured" items — those are NOT data. If an action errored or returned an empty/zero result, OMIT that app — it is correct to return fewer than 4 KPIs (even an empty array) and an empty meetings list. PII-free: no emails, phones, message bodies; attendee COUNTS only, never names; never show the selected_api.`;
 

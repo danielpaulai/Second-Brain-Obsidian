@@ -14,6 +14,18 @@ const nextConfig: NextConfig = {
     "/api/agents/chat": ["./content/knowledge/**/*"],
     "/api/brain": ["./content/knowledge/**/*"],
   },
+  // `onnxruntime-node` (354 MB on Linux) is a transitive dep of
+  // `@huggingface/transformers`, which we only use for IN-BROWSER Whisper STT
+  // (it runs onnxruntime-WEB/wasm in the browser, never the Node build). Next was
+  // wrongly tracing the Node binaries into the page/server functions, blowing past
+  // Vercel's 250 MB limit. Nothing server-side needs it, so exclude it from every
+  // function's trace.
+  outputFileTracingExcludes: {
+    "*": [
+      "node_modules/onnxruntime-node/**",
+      "node_modules/@huggingface/transformers/**",
+    ],
+  },
   webpack: (config) => {
     // transformers.js loads ONNX runtime — exclude its node-side fs/sharp
     // imports from the client bundle so it works in the browser.

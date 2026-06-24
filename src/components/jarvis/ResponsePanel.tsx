@@ -41,7 +41,7 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
   const activeKey = tab && deliverables.some((d) => d.key === tab) ? tab : deliverables[0]?.key;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[20px] border border-white/12 bg-gradient-to-b from-white/[0.07] via-white/[0.025] to-transparent shadow-[0_30px_80px_-42px_rgba(0,0,0,0.92)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl">
+    <div className="flex h-full flex-col overflow-hidden rounded-[20px] border border-white/12 bg-gradient-to-b from-white/[0.07] via-white/[0.025] to-transparent shadow-[0_30px_80px_-42px_rgba(0,0,0,0.92)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl backdrop-saturate-150">
       {/* deliverable tabs — only when the team produced more than one */}
       {deliverables.length > 1 && (
         <div className="flex shrink-0 items-center gap-1 border-b border-white/[0.07] px-3 py-2">

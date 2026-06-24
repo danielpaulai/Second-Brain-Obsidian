@@ -4,14 +4,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { anthropicFetch } from "@/lib/anthropic-fetch";
 import { NO_EMDASH_RULE, emDashTransform } from "@/lib/sanitize";
 import { z } from "zod";
-import {
-  getCachedVault,
-  searchNotes,
-  hybridSearch,
-  getIdentityContext,
-  buildIdentityPreamble,
-  getSearchModeInfo,
-} from "@/lib/vault";
+import { getIdentityContext, buildIdentityPreamble } from "@/lib/vault";
+import { searchVault, readVaultNote, recentVaultNotes, vaultStats, buildVaultGraph } from "@/lib/brain-vault";
 import { getKnowledgeTree, getKnowledgeNode } from "@/lib/knowledge";
 import { getAgent, type AgentId } from "@/lib/agents";
 import {
@@ -188,21 +182,16 @@ REASONING LOOP — follow this sequence:
           limit: z.number().int().min(1).max(12).default(6),
         }),
         execute: async ({ query, limit }) => {
-          const hits = await hybridSearch(query, limit);
-          const mode = getSearchModeInfo();
+          const hits = await searchVault(query, { limit, groupByDocument: true });
           const payload = {
             query,
-            mode: mode.indexState === "ready" ? "hybrid" : `keyword-only (semantic ${mode.indexState})`,
+            mode: "semantic",
             count: hits.length,
             results: hits.map((h) => ({
               title: h.title,
               folder: h.folder,
-              excerpt: h.excerpt,
-              foundBy: h.source.keyword !== null && h.source.semantic !== null
-                ? "both"
-                : h.source.semantic !== null
-                  ? "semantic"
-                  : "keyword",
+              excerpt: (h.content || "").slice(0, 600),
+              foundBy: "semantic",
             })),
           };
           return await redactObject(payload, redactOpts);
@@ -215,16 +204,17 @@ REASONING LOOP — follow this sequence:
           topHubs: z.number().int().min(1).max(20).default(10),
         }),
         execute: async ({ topHubs }) => {
-          const { notes, graph } = await getCachedVault();
-          const sorted = [...graph.nodes].sort((a, b) => b.degree - a.degree).slice(0, topHubs);
+          const stats = await vaultStats();
+          const { graph } = await buildVaultGraph();
+          const sorted = [...graph.nodes].sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0)).slice(0, topHubs);
           const folderCounts = new Map<string, number>();
-          for (const n of notes) folderCounts.set(n.folder, (folderCounts.get(n.folder) ?? 0) + 1);
+          for (const n of graph.nodes) folderCounts.set(n.folder, (folderCounts.get(n.folder) ?? 0) + 1);
           const folders = [...folderCounts.entries()]
             .sort((a, b) => b[1] - a[1])
             .map(([folder, count]) => ({ folder, count }));
           const payload = {
-            totals: { notes: notes.length, links: graph.links.length, folders: graph.folders.length },
-            topHubs: sorted.map((n) => ({ title: n.name, folder: n.folder, degree: n.degree })),
+            totals: { notes: stats.documents, links: graph.links.length, folders: stats.folders },
+            topHubs: sorted.map((n) => ({ title: n.name, folder: n.folder, degree: n.degree ?? 0 })),
             foldersByCount: folders.slice(0, 15),
           };
           // Hub titles often contain client names — redact for non-owner viewers.
@@ -236,15 +226,14 @@ REASONING LOOP — follow this sequence:
           "List the most recently edited notes in the vault. Use for 'what did I work on last week / yesterday / recently'.",
         parameters: z.object({ limit: z.number().int().min(1).max(20).default(10) }),
         execute: async ({ limit }) => {
-          const { notes } = await getCachedVault();
-          const sorted = [...notes].sort((a, b) => b.mtime - a.mtime).slice(0, limit);
+          const notes = await recentVaultNotes(undefined, limit);
           const payload = {
-            count: sorted.length,
-            results: sorted.map((n) => ({
+            count: notes.length,
+            results: notes.map((n) => ({
               title: n.title,
               folder: n.folder,
-              editedAt: new Date(n.mtime).toISOString(),
-              excerpt: n.body.slice(0, 280),
+              editedAt: n.mtime ? new Date(n.mtime).toISOString() : null,
+              excerpt: n.excerpt,
             })),
           };
           return await redactObject(payload, redactOpts);
@@ -265,35 +254,14 @@ REASONING LOOP — follow this sequence:
               title,
             };
           }
-          const { notes } = await getCachedVault();
-          const norm = title.trim().toLowerCase();
-          const hit = notes.find((n) => n.title.toLowerCase() === norm);
-          if (!hit) {
-            const fuzzy = notes.find((n) =>
-              n.title.toLowerCase().includes(norm) || norm.includes(n.title.toLowerCase())
-            );
-            if (!fuzzy) return { found: false, title };
-            return await redactObject(
-              {
-                found: true,
-                title: fuzzy.title,
-                folder: fuzzy.folder,
-                fullBody: fuzzy.body,
-                links: fuzzy.links,
-                tags: fuzzy.tags,
-                degree: 0,
-              },
-              redactOpts
-            );
-          }
+          const note = await readVaultNote(title);
+          if (!note.found) return { found: false, title };
           return await redactObject(
             {
               found: true,
-              title: hit.title,
-              folder: hit.folder,
-              fullBody: hit.body,
-              links: hit.links,
-              tags: hit.tags,
+              title: note.title,
+              folder: note.folder,
+              fullBody: note.content,
             },
             redactOpts
           );

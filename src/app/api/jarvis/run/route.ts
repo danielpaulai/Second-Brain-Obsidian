@@ -259,13 +259,28 @@ async function runResearch(
   return brief;
 }
 
-const SlideSchema = z.object({
+const NUM_WORDS: Record<string, number> = { three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+/** How many slides the founder asked for. Default 5, clamped to 3-10. */
+function parseSlideCount(instruction: string, def = 5): number {
+  const t = instruction.toLowerCase();
+  let n =
+    Number((t.match(/(\d{1,2})\s*-?\s*slide/) || [])[1]) ||
+    Number((t.match(/carousel\s+(?:of|with|in)\s+(\d{1,2})/) || [])[1]) ||
+    NUM_WORDS[(t.match(/\b(three|four|five|six|seven|eight|nine|ten)\b\s+slide/) || [])[1]] ||
+    0;
+  if (!n) return def;
+  return Math.max(3, Math.min(10, Math.round(n)));
+}
+
+function buildSlideSchema(slideCount: number) {
+  return z.object({
   topic: z.string().describe("The carousel's subject in 3-6 words."),
   hook: z.string().describe("The scroll-stopping first-slide line."),
   styleBible: z
     .string()
     .describe(
-      "ONE concrete paragraph defining the SHARED visual template for every slide: layout, typography style, color palette (name the actual colors), spacing, and mood. Specific enough to recreate the identical look across all 5 slides."
+      "ONE concrete paragraph defining the SHARED visual template for every slide: layout, typography style, color palette (name the actual colors), spacing, and mood. Specific enough to recreate the identical look across all the slides."
     ),
   slides: z
     .array(
@@ -288,9 +303,10 @@ const SlideSchema = z.object({
           ),
       })
     )
-    .length(5),
+    .length(slideCount),
   caption: z.string().describe("The LinkedIn caption to post with the carousel. No hashtag spam."),
-});
+  });
+}
 
 /** Carousel specialist: match voice, write 5 slides, then render real visuals. */
 async function runCarousel(
@@ -299,6 +315,7 @@ async function runCarousel(
   emit: Emit,
   grounding: string[]
 ): Promise<CarouselArtifactData> {
+  const slideCount = parseSlideCount(instruction); // founder can ask for "an 8-slide carousel" etc.
   emit({ type: "agent.activate", node: "carousel", label: node("carousel").label, at: now() });
   await beat(500);
   emit({ type: "agent.status", node: "carousel", status: "Matching your voice", at: now() });
@@ -314,7 +331,7 @@ async function runCarousel(
     emit({ type: "agent.tool", node: "carousel", tool: "Content guide", detail: guide.title, at: now() });
     await beat(300);
   }
-  emit({ type: "agent.status", node: "carousel", status: guide ? `Writing to “${guide.title}”` : "Writing 5 slides", at: now() });
+  emit({ type: "agent.status", node: "carousel", status: guide ? `Writing to “${guide.title}”` : `Writing ${slideCount} slides`, at: now() });
 
   let data: CarouselArtifactData = {
     topic: "Your edge, made simple",
@@ -335,7 +352,7 @@ async function runCarousel(
   try {
     const { object: rawObject } = await generateObject({
       model: model(),
-      schema: SlideSchema,
+      schema: buildSlideSchema(slideCount),
       maxTokens: 2000,
       maxRetries: 1,
       system:
@@ -343,7 +360,7 @@ async function runCarousel(
         (guide
           ? `\n\nFollow this MASTER CONTENT GUIDE exactly — it is the authoritative playbook for this format. Apply its hook formulas, structure, formatting, and rules:\n\n${guide.body}\n\n---\n`
           : "") +
-        "\n\nProduce a 5-slide LinkedIn carousel in Danny's EXACT voice (match the loaded Voice DNA markers, rhythm, and vocabulary). Adapt the guide to a 5-slide arc: slide 1 is the hook, slides 2-4 build, slide 5 is the CTA. Short, punchy, no hashtag spam, no corporate filler. Ground every claim in the brief; never invent metrics.\n\nAlso act as ART DIRECTOR for EACH slide: choose its layout (split / stacked / statement) and the CONCRETE visual elements. Name the SPECIFIC official tools/brands to feature as their REAL logos, and the product UIs to show as realistic screenshots, preferring real recognizable logos and interfaces over abstract or conceptual art. When a slide is about a tool, name it in the headline and feature its official logo. Vary the layouts across the middle slides so the deck isn't monotonous. DEVICE RULE for the `visual`: when it's a product screenshot/UI, a SPLIT slide shows it on a MOBILE PHONE (half width) and a STACKED slide shows it in a DESKTOP BROWSER / laptop window (full width), describe it that way. Keep the founder's header + branding identical on every slide.\n\n" +
+        `\n\nProduce a ${slideCount}-slide LinkedIn carousel (EXACTLY ${slideCount} slides) in Danny's EXACT voice (match the loaded Voice DNA markers, rhythm, and vocabulary). Arc: slide 1 is the hook (kind "hook"), the middle slides build (kind "body"), and the LAST slide is the CTA (kind "cta"). Short, punchy, no hashtag spam, no corporate filler. Ground every claim in the brief; never invent metrics.\n\nAlso act as ART DIRECTOR for EACH slide: choose its layout (split / stacked / statement) and the CONCRETE visual elements. Name the SPECIFIC official tools/brands to feature as their REAL logos, and the product UIs to show as realistic screenshots, preferring real recognizable logos and interfaces over abstract or conceptual art. When a slide is about a tool, name it in the headline and feature its official logo. Vary the layouts across the middle slides so the deck isn't monotonous. DEVICE RULE for the \`visual\`: when it's a product screenshot/UI, a SPLIT slide shows it on a MOBILE PHONE (half width) and a STACKED slide shows it in a DESKTOP BROWSER / laptop window (full width), describe it that way. Keep the founder's header + branding identical on every slide.\n\n` +
         NO_EMDASH_RULE,
       prompt:
         `Request: "${instruction}"\n\n` +
@@ -366,7 +383,7 @@ async function runCarousel(
 
   emit({ type: "agent.status", node: "carousel", status: "Deck ready", at: now() });
   await beat(300);
-  emit({ type: "agent.output", node: "carousel", summary: `5 slides on "${data.topic}"`, at: now() });
+  emit({ type: "agent.output", node: "carousel", summary: `${data.slides.length} slides on "${data.topic}"`, at: now() });
   await beat(200);
 
   // Render the real visuals FIRST — we only surface the carousel once the
@@ -402,7 +419,10 @@ async function runCarousel(
     const total = data.slides.length;
     // Render slides concurrently, but capped so we stay under the image API's
     // concurrent-request limit (configurable via OPENAI_IMAGE_CONCURRENCY).
-    const imageConcurrency = Math.max(1, Number(process.env.OPENAI_IMAGE_CONCURRENCY) || 5);
+    // Render all slides in ONE parallel wave by default (so a bigger deck still
+    // finishes within the function budget); OPENAI_IMAGE_CONCURRENCY can cap it if
+    // the OpenAI tier rate-limits concurrent image requests.
+    const imageConcurrency = Math.max(1, Number(process.env.OPENAI_IMAGE_CONCURRENCY) || total);
     const images = await mapLimit(data.slides, imageConcurrency, (s, i) => {
       const m = slideMeta![i] ?? { layout: "stacked" as const, visual: "", logos: [] };
       return onBrand
@@ -889,7 +909,7 @@ async function runDepartment(
         sink.setCarousel(d);
         sink.contributions.push({
           label: `${dept.title} · Carousel`,
-          text: `A 5-slide carousel "${d.topic}" + caption was produced. (See the Carousel tab.)`,
+          text: `A ${d.slides.length}-slide carousel "${d.topic}" + caption was produced. (See the Carousel tab.)`,
         });
         summary = `Carousel on "${d.topic}" ready`;
       } else {

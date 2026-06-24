@@ -318,6 +318,50 @@ export async function vaultStats(client = VAULT_CLIENT): Promise<VaultStats> {
   }
 }
 
+/** Read ONE note's full content by title (exact case-insensitive, then fuzzy contains). */
+export type VaultNoteRead = { found: boolean; title?: string; folder?: string; content?: string; path?: string };
+export async function readVaultNote(title: string, client = VAULT_CLIENT): Promise<VaultNoteRead> {
+  if (!vaultConfigured().ok || !title?.trim()) return { found: false };
+  try {
+    const db = vaultDb();
+    const t = title.trim();
+    const cols = "title,folder,content,path";
+    let { data } = await db.from("vault_documents").select(cols).eq("client", client).ilike("title", t).limit(1);
+    if (!data?.length) {
+      ({ data } = await db.from("vault_documents").select(cols).eq("client", client).ilike("title", `%${t}%`).limit(1));
+    }
+    const row = data?.[0] as { title: string; folder: string; content: string; path: string } | undefined;
+    if (!row) return { found: false };
+    return { found: true, title: row.title, folder: row.folder, content: row.content, path: row.path };
+  } catch (err) {
+    console.error("[brain-vault] readVaultNote failed:", err);
+    return { found: false };
+  }
+}
+
+/** The most recently edited notes (by mtime), for "what did I work on lately". */
+export async function recentVaultNotes(client = VAULT_CLIENT, limit = 10): Promise<{ title: string; folder: string; mtime: number; excerpt: string }[]> {
+  if (!vaultConfigured().ok) return [];
+  try {
+    const db = vaultDb();
+    const { data } = await db
+      .from("vault_documents")
+      .select("title,folder,content,mtime")
+      .eq("client", client)
+      .order("mtime", { ascending: false, nullsFirst: false })
+      .limit(limit);
+    return ((data as { title: string; folder: string; content: string | null; mtime: number | null }[]) ?? []).map((r) => ({
+      title: r.title,
+      folder: r.folder,
+      mtime: Number(r.mtime) || 0,
+      excerpt: (r.content ?? "").slice(0, 280),
+    }));
+  } catch (err) {
+    console.error("[brain-vault] recentVaultNotes failed:", err);
+    return [];
+  }
+}
+
 /* --------------------------- knowledge graph --------------------------- */
 
 export type VaultGraphResult = {
@@ -336,14 +380,25 @@ export async function buildVaultGraph(client = VAULT_CLIENT): Promise<VaultGraph
   if (!vaultConfigured().ok) return empty;
   try {
     const db = vaultDb();
-    const { data, error } = await db
-      .from("vault_documents")
-      .select("path,title,folder,tags,links")
-      .eq("client", client);
-    if (error || !data?.length) return empty;
-
     type Row = { path: string; title: string; folder: string; tags: string[] | null; links: string[] | null };
-    const rows = data as Row[];
+    // Supabase caps .select() at 1000 rows — paginate so the whole vault graphs.
+    const rows: Row[] = [];
+    const PAGE = 1000;
+    for (let from = 0; from < 50000; from += PAGE) {
+      const { data, error } = await db
+        .from("vault_documents")
+        .select("path,title,folder,tags,links")
+        .eq("client", client)
+        .range(from, from + PAGE - 1);
+      if (error) {
+        if (!rows.length) return empty;
+        break;
+      }
+      if (!data?.length) break;
+      rows.push(...(data as Row[]));
+      if (data.length < PAGE) break;
+    }
+    if (!rows.length) return empty;
     const notes = rows.map((r) => ({
       id: r.path.replace(/\.md$/i, ""),
       title: r.title,

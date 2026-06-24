@@ -9,15 +9,23 @@
  */
 
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { generateText, generateObject } from "ai";
+import { generateObject } from "ai";
 import { z } from "zod";
 import { anthropicFetch } from "./anthropic-fetch";
-import { zapierMcpConfigured, zapierAiTools } from "./zapier-mcp";
+import { zapierMcpConfigured, withZapierSession } from "./zapier-mcp";
+import { mapLimit } from "./concurrency";
 
+// Claude Opus 4.8 — the dashboard is low-frequency (cached client-side) so we use
+// the strongest model for tool selection + shaping.
 function model() {
   const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY, fetch: anthropicFetch });
   const id = (process.env.AI_MODEL || "anthropic/claude-opus-4-8").split("/").slice(1).join("/");
   return anthropic(id || "claude-opus-4-8");
+}
+
+/** Race a promise against a hard timeout so the route returns gracefully (never 502s). */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
 }
 
 /* ---- the PII-free shape the LLM fills from the connected apps ---- */
@@ -59,23 +67,26 @@ export const DashboardLiveSchema = z.object({
 
 export type DashboardLive = z.infer<typeof DashboardLiveSchema> & { generatedAt: number };
 
-const GATHER_SYSTEM = `You are a data-collection agent for a founder's executive dashboard. The founder has connected these apps via Zapier; call the relevant find / list / get / search tools to READ them: Google Calendar, Gmail, Slack, Notion, Zoom, Google Drive, LinkedIn.
+const PlanSchema = z.object({
+  calls: z
+    .array(
+      z.object({
+        name: z.string().describe("the EXACT tool name from the catalog"),
+        argsJson: z.string().describe('a JSON object of arguments for this tool, e.g. {"instructions":"calendar events in the next 7 days"}'),
+        gets: z.string().describe("the metric this call is for, e.g. 'upcoming meetings'"),
+      })
+    )
+    .max(14)
+    .describe("the read-only find/list/get/search calls to run, spread across the apps"),
+});
 
-Pull a current snapshot, METRICS ONLY. SPREAD YOUR READS ACROSS ALL THE APPS — do NOT over-rely on Gmail (one or two Gmail metrics at most). Aim to read each of these:
-- Google Calendar + Zoom: UPCOMING meetings for the next 7 days (title, start time, duration, attendee COUNT, platform) and the single most recent PAST meeting.
-- Slack: message volume and/or the most active channels over the last 7 days.
-- Notion: pages/docs created or edited over the last 7 days.
-- Google Drive: files added/modified over the last 7 days.
-- LinkedIn: recent posts and their reach/engagement if available.
-- Gmail: a simple email volume count (received/sent) — keep this to 1 metric, do not dump inbox contents.
+const PLAN_SYSTEM = `You are assembling a live executive dashboard from a founder's connected apps (Google Calendar, Gmail, Slack, Notion, Zoom, Google Drive, LinkedIn) exposed as the Zapier tools listed below.
 
-HARD PRIVACY RULES, no exceptions: never output, repeat or summarise email addresses, phone numbers, message bodies, or individual people's names beyond what already appears in a meeting title. Report COUNTS, TITLES and TIMES only. If a tool returns emails or message text, do NOT echo them.
+Choose the READ-ONLY tool calls (find / list / get / search) that pull a current snapshot, and SPREAD them across ALL the apps — do NOT over-use Gmail (one Gmail count at most). Aim to cover: upcoming meetings next 7 days + the most recent past meeting (Calendar/Zoom), Slack message/channel activity, Notion docs created/edited, Drive files added, LinkedIn recent posts + reach, and a single email count. Use each tool's natural-language argument (usually "instructions") to say what you want, e.g. "events in the next 7 days". METRICS ONLY — never request message bodies, full inboxes, or contact lists. Return up to ~12 calls.`;
 
-Be efficient but BROAD: a couple of targeted tool calls PER APP across Calendar, Zoom, Slack, Notion, Drive, LinkedIn and Gmail. Then write up exactly what you found as concise notes, grouped by app (counts, titles, times). If a tool errors or returns nothing, note it and move on.`;
+const SHAPE_SYSTEM = `Turn the tool results into the dashboard JSON. Use ONLY data actually present in the results — never invent or estimate numbers; if a result errored or was empty, just leave it out. Keep it strictly PII-free: no email addresses, phone numbers, or message bodies; attendee COUNTS only, never names.
 
-const SHAPE_SYSTEM = `Turn the collected notes into the dashboard JSON. Use ONLY data that is actually present in the notes — never invent or estimate numbers. If something wasn't found, return a shorter array or null rather than guessing. Keep it strictly PII-free: no email addresses, no phone numbers, no message bodies, attendee COUNTS only (never names).
-
-DIVERSITY RULE: the 4 KPIs must come from at least 3 DIFFERENT apps (set each KPI's "source"), and the mini-stats + activity feed must also span multiple apps. Do NOT let Gmail dominate — at most one Gmail KPI. Prefer a mix like: Meetings (Calendar/Zoom), Slack messages, Notion docs, Drive files, LinkedIn reach, and a single Emails count.`;
+DIVERSITY RULE: the 4 KPIs must come from at least 3 DIFFERENT apps (set each KPI's "source"), and the mini-stats + activity must also span multiple apps. Do NOT let Gmail dominate — at most one Gmail KPI. Prefer a mix: Meetings (Calendar/Zoom), Slack messages, Notion docs, Drive files, LinkedIn reach, one Emails count.`;
 
 /** Strip any email that slipped through (belt-and-suspenders on top of the prompt rules). */
 function scrubPii<T>(value: T): T {
@@ -97,27 +108,50 @@ function scrubPii<T>(value: T): T {
 
 export async function buildLiveDashboard(): Promise<DashboardLive | null> {
   if (!zapierMcpConfigured()) return null;
-  const tools = await zapierAiTools();
-  if (Object.keys(tools).length === 0) return null;
+  // Hard timeout (below the function's maxDuration) so the route always answers
+  // gracefully instead of 502-ing when the apps are slow.
+  return withTimeout(gatherDashboard(), 150_000);
+}
 
-  // Phase 1 — gather via the Zapier tools (the LLM lists + calls them itself).
-  const gather = await generateText({
-    model: model(),
-    tools,
-    maxSteps: 16,
-    maxTokens: 2600,
-    system: GATHER_SYSTEM,
-    prompt: "Collect the snapshot now. Treat today as the reference point: 'upcoming' = the next 7 days, 'recent' = the last 7 days.",
+async function gatherDashboard(): Promise<DashboardLive | null> {
+  return withZapierSession(async ({ tools, call }) => {
+    if (!tools.length) return null;
+
+    // 1. PLAN — one Opus call lists the tools and picks which to call.
+    const catalog = tools
+      .map((t) => `- ${t.name}: ${(t.description || "").slice(0, 140)}`)
+      .join("\n")
+      .slice(0, 14000);
+    const { object: plan } = await generateObject({
+      model: model(),
+      schema: PlanSchema,
+      maxTokens: 1600,
+      system: PLAN_SYSTEM,
+      prompt: `Available tools:\n${catalog}`,
+    });
+
+    // 2. EXECUTE — run the chosen calls CONCURRENTLY over the single connection.
+    const results = await mapLimit(plan.calls.slice(0, 14), 5, async (c) => {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(c.argsJson);
+      } catch {
+        /* some tools accept empty args */
+      }
+      const r = await call(c.name, args);
+      return { tool: c.name, for: c.gets, ok: r.ok, data: r.ok ? r.data : { error: r.error } };
+    });
+
+    // 3. SHAPE — one Opus call turns the raw results into the dashboard JSON.
+    const raw = JSON.stringify(results).slice(0, 45000);
+    const { object } = await generateObject({
+      model: model(),
+      schema: DashboardLiveSchema,
+      maxTokens: 1800,
+      system: SHAPE_SYSTEM,
+      prompt: `Tool results from the founder's connected apps:\n${raw}`,
+    });
+
+    return { ...scrubPii(object), generatedAt: Date.now() };
   });
-
-  // Phase 2 — shape the notes into the dashboard JSON.
-  const { object } = await generateObject({
-    model: model(),
-    schema: DashboardLiveSchema,
-    maxTokens: 1800,
-    system: SHAPE_SYSTEM,
-    prompt: `Collected notes:\n\n${gather.text || "(the agent returned no notes)"}`,
-  });
-
-  return { ...scrubPii(object), generatedAt: Date.now() };
 }

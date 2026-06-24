@@ -14,16 +14,19 @@
 import matter from "gray-matter";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { embed, embedOne, describeEmbeddingProvider } from "./embeddings";
+import { APP_CLIENT } from "./client";
 // TYPE-ONLY import (erased at build) so brain-vault never pulls vault.ts → LanceDB
 // into the bundles of the many routes that import it.
 import type { BrainGraph } from "./vault";
 
-export const VAULT_CLIENT = process.env.VAULT_CLIENT || process.env.KNOWLEDGE_CLIENT || "default";
+export const VAULT_CLIENT = APP_CLIENT; // single-tenant: one client, no env
 
 const CHUNK_TARGET = 1200; // ~300 tokens — a focused retrieval unit
 const CHUNK_OVERLAP = 160;
 const MAX_CHUNKS_PER_NOTE = 60; // guard against a pathological mega-note
-const INSERT_BATCH = 100; // rows per chunk-insert (keeps the JSON payload sane)
+const INSERT_BATCH = 20; // rows per chunk-insert — small enough that a single vector
+// insert stays under Postgres' statement timeout as the table grows (100 timed out
+// at ~71k rows and silently halted ingestion).
 
 export type VaultNoteInput = { path: string; content: string };
 

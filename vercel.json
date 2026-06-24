@@ -4,6 +4,7 @@
   "buildCommand": "next build",
   "installCommand": "npm install",
   "functions": {
+    "src/app/api/dashboard/data/route.ts": { "maxDuration": 180, "memory": 1024 },
     "src/app/api/brain/route.ts": { "maxDuration": 60, "memory": 1024 },
     "src/app/api/chat/route.ts": { "maxDuration": 90, "memory": 1024 },
     "src/app/api/brain/reindex/route.ts": { "maxDuration": 300, "memory": 2048 },

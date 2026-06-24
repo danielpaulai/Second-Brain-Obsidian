@@ -43,6 +43,64 @@ async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
 }
 
 export type ZapierTool = { name: string; description: string; inputSchema: Record<string, unknown> };
+export type ZapierCallResult = { ok: boolean; data: unknown; error?: string };
+
+function parseCallResult(res: { content?: { type: string; text?: string }[]; isError?: boolean }): ZapierCallResult {
+  const text = (res.content ?? [])
+    .filter((c) => c.type === "text")
+    .map((c) => c.text ?? "")
+    .join("\n");
+  let data: unknown = text;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    /* keep raw text */
+  }
+  return { ok: !res.isError, data, error: res.isError ? text : undefined };
+}
+
+export type ZapierSession = {
+  tools: ZapierTool[];
+  call: (name: string, args?: Record<string, unknown>) => Promise<ZapierCallResult>;
+};
+
+/**
+ * Open ONE connection, list the tools, and run `fn` with a session that can call
+ * many tools over that single connection (vs connect-per-call). Always closes.
+ * This is what the dashboard pipeline uses — far fewer handshakes = much faster.
+ */
+export async function withZapierSession<T>(fn: (s: ZapierSession) => Promise<T>): Promise<T> {
+  const url = process.env.ZAPIER_MCP_URL;
+  if (!url) throw new Error("ZAPIER_MCP_URL is not set");
+  const token = process.env.ZAPIER_MCP_TOKEN;
+  const transport = new StreamableHTTPClientTransport(
+    new URL(url),
+    token ? { requestInit: { headers: { Authorization: `Bearer ${token}` } } } : undefined
+  );
+  const client = new Client({ name: "second-brain-dashboard", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    const session: ZapierSession = {
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        inputSchema: (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
+      })),
+      call: async (name, args = {}) => {
+        try {
+          const res = (await client.callTool({ name, arguments: args })) as { content?: { type: string; text?: string }[]; isError?: boolean };
+          return parseCallResult(res);
+        } catch (err) {
+          return { ok: false, data: null, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    };
+    return await fn(session);
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
 
 /** Discover the actions exposed by the configured Zapier MCP server. */
 export async function listZapierTools(): Promise<ZapierTool[]> {
@@ -62,29 +120,11 @@ export async function listZapierTools(): Promise<ZapierTool[]> {
   }
 }
 
-export type ZapierCallResult = { ok: boolean; data: unknown; error?: string };
-
 /** Execute one Zapier action and return its (JSON-parsed when possible) result. */
 export async function callZapierTool(name: string, args: Record<string, unknown> = {}): Promise<ZapierCallResult> {
   if (!zapierMcpConfigured()) return { ok: false, data: null, error: "Zapier MCP not configured (set ZAPIER_MCP_URL)" };
   try {
-    return await withClient(async (client) => {
-      const res = (await client.callTool({ name, arguments: args })) as {
-        content?: { type: string; text?: string }[];
-        isError?: boolean;
-      };
-      const text = (res.content ?? [])
-        .filter((c) => c.type === "text")
-        .map((c) => c.text ?? "")
-        .join("\n");
-      let data: unknown = text;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        /* keep raw text */
-      }
-      return { ok: !res.isError, data, error: res.isError ? text : undefined };
-    });
+    return await withClient(async (client) => parseCallResult((await client.callTool({ name, arguments: args })) as Parameters<typeof parseCallResult>[0]));
   } catch (err) {
     return { ok: false, data: null, error: err instanceof Error ? err.message : String(err) };
   }

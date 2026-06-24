@@ -8,6 +8,7 @@ import {
   KNOWLEDGE_MAP,
   isDocType,
 } from "./knowledge-map";
+import { APP_CLIENT } from "./client";
 
 /**
  * Client knowledge — the student's ingested business-doc set.
@@ -45,27 +46,9 @@ const TTL_MS = 60_000;
 
 type Cache = { docs: BusinessDoc[]; loadedAt: number };
 const cacheByClient = new Map<string, Cache>();
-let defaultClientCache: { value: string; at: number } | null = null;
-
-async function listClientDirs(): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(KNOWLEDGE_ROOT, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch {
-    return [];
-  }
-}
-
-/** The active client for a single-tenant deployment (env override > first ingested). */
+/** The active client. Single-tenant: there is exactly one (APP_CLIENT), so no env needed. */
 export async function defaultClient(): Promise<string> {
-  if (process.env.KNOWLEDGE_CLIENT) return process.env.KNOWLEDGE_CLIENT;
-  if (defaultClientCache && Date.now() - defaultClientCache.at < TTL_MS) {
-    return defaultClientCache.value;
-  }
-  const dirs = await listClientDirs();
-  const value = dirs[0] || "noman-khan";
-  defaultClientCache = { value, at: Date.now() };
-  return value;
+  return APP_CLIENT;
 }
 
 async function loadDocs(client: string): Promise<BusinessDoc[]> {

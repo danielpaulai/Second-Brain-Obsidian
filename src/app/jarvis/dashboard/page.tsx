@@ -74,6 +74,8 @@ const CONNECTED: { name: string; Icon: PhIcon; color: string }[] = [
   { name: "LinkedIn", Icon: LinkedinLogo, color: BRAND.fuchsia },
 ];
 
+const CACHE_KEY = "sb_dashboard_live_v1"; // localStorage: persists across page loads; Refresh re-pulls
+
 export default function DashboardPage() {
   const [resp, setResp] = useState<LiveResp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,12 +84,33 @@ export default function DashboardPage() {
     setLoading(true);
     fetch(`/api/dashboard/data${refresh ? "?refresh=1" : ""}`)
       .then((r) => r.json())
-      .then((j: LiveResp) => setResp(j))
+      .then((j: LiveResp) => {
+        setResp(j);
+        if (j.live) {
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(j));
+          } catch {
+            /* storage full / disabled — fine */
+          }
+        }
+      })
       .catch((e) => setResp({ live: false, error: e instanceof Error ? e.message : String(e) }))
       .finally(() => setLoading(false));
   }, []);
 
+  // Use the client-side cache instantly if present; only call the API when there's
+  // nothing cached. The Refresh button (load(true)) re-pulls and updates the cache.
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) {
+        setResp(JSON.parse(raw) as LiveResp);
+        setLoading(false);
+        return;
+      }
+    } catch {
+      /* ignore a corrupt cache */
+    }
     load();
   }, [load]);
 

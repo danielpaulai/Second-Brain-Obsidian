@@ -245,18 +245,33 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
     };
   }, [measure]);
 
+  /* ---- newsletter remap ----
+   * The chart shows newsletters as a DEDICATED CMO node ("cmo-newsletter"), but the
+   * run/org models a newsletter as a Content format ("newsletter" under "content").
+   * Remap the org id onto the chart node (and drop Content from the lit path) so a
+   * newsletter lights up the Newsletter node, not Content. */
+  const isNewsletter = active === "newsletter" || litPath.includes("newsletter") || phases["newsletter"] != null;
+  const toChart = (id: string): string => (id === "newsletter" ? "cmo-newsletter" : id);
+  const chartLitPath = (isNewsletter ? litPath.filter((id) => id !== "content") : litPath).map(toChart);
+  const chartActive = active ? toChart(active) : active;
+
   /* ---- lit / done / active sets (tools are real nodes now — no folding) ---- */
-  const engaged = new Set<string>(litPath);
+  const engaged = new Set<string>(chartLitPath);
   const doneSet = new Set<string>();
   for (const [id, ph] of Object.entries(phases) as [JarvisNodeId, NodePhase][]) {
-    if (ph === "working" || ph === "done") engaged.add(id);
-    if (ph === "done") doneSet.add(id);
+    if (isNewsletter && id === "content") continue; // a newsletter doesn't run through Content here
+    const cid = toChart(id);
+    if (ph === "working" || ph === "done") engaged.add(cid);
+    if (ph === "done") doneSet.add(cid);
   }
-  if (active) engaged.add(active);
+  if (chartActive) engaged.add(chartActive);
 
   /* ---- latest mission-feed line per node, for its notification pane ---- */
   const paneByNode: Record<string, FeedEntry> = {};
-  for (const f of feed) paneByNode[f.node] = f;
+  for (const f of feed) {
+    if (isNewsletter && f.node === "content") continue;
+    paneByNode[toChart(f.node)] = f;
+  }
 
   /**
    * Beams only run while work is in flight, and only on the current active spine
@@ -264,7 +279,7 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
    * beam DOWN toward the frontier; the moment work reports back we beam UP toward
    * the CEO. When the run finishes the beams stop and the path just stays lit.
    */
-  const spine = new Set<string>(litPath);
+  const spine = new Set<string>(chartLitPath);
   // direction tracks the last event that actually MOVED activity between nodes
   // (activate = down to a child, report = up to a parent). status/tool/output
   // happen in place and must not flip the beam — so the run ends cleanly beaming
@@ -432,7 +447,7 @@ export default function OrgPyramid({ active, litPath, phases, feed, running }: P
               tier={l.tier}
               on={on}
               done={doneSet.has(l.id)}
-              active={active === l.id}
+              active={chartActive === l.id}
               running={running}
               entry={paneByNode[l.id]}
               refCb={(el) => (nodeRefs.current[l.id] = el)}

@@ -2,24 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  Lightning,
-  Pulse,
-  ArrowsClockwise,
-  EnvelopeSimple,
-  CalendarBlank,
-  ChatCircleDots,
-  Notebook,
-  VideoCamera,
-  LinkedinLogo,
-  Heart,
-  ChatCircle,
-  ShareNetwork,
-  type Icon as PhIcon,
-} from "@phosphor-icons/react";
-import { Panel, Rise, StatusDot } from "@/components/dashboard/ui";
+import { ArrowLeft, ArrowsClockwise, Heart, ChatCircle, ShareNetwork, SquaresFour, Faders, CaretRight, type Icon as PhIcon } from "@phosphor-icons/react";
+import { motion } from "motion/react";
+import { Panel, Rise } from "@/components/dashboard/ui";
 import { MeetingsPanel, MiniStatStrip, StatBand } from "@/components/dashboard/panels";
+import AgentChatPanel from "@/components/dashboard/AgentChatPanel";
+import { BrandMark } from "@/components/dashboard/BrandMark";
+import { BRANDS } from "@/lib/brand-marks";
+import { useOperatorActivity } from "@/lib/operator-activity";
+import { cn } from "@/lib/utils";
 import { BRAND } from "@/lib/dashboard-data";
 import type { LinkedInMetrics } from "@/lib/linkedin-metrics";
 
@@ -55,20 +46,21 @@ const FINANCIALS = [
   { label: "Avg deal size", value: "$19.4k", sub: "Won deals", color: BRAND.amber },
 ];
 
-const CONNECTED: { name: string; Icon: PhIcon; color: string }[] = [
-  { name: "LinkedIn", Icon: LinkedinLogo, color: BRAND.fuchsia },
-  { name: "Gmail", Icon: EnvelopeSimple, color: BRAND.amber },
-  { name: "Google Calendar", Icon: CalendarBlank, color: BRAND.cyan },
-  { name: "Slack", Icon: ChatCircleDots, color: BRAND.violet },
-  { name: "Notion", Icon: Notebook, color: BRAND.sky },
-  { name: "Zoom", Icon: VideoCamera, color: BRAND.emerald },
+const CONNECTED: { name: string; brand: string }[] = [
+  { name: "Gmail", brand: "gmail" },
+  { name: "Slack", brand: "slack" },
+  { name: "Google Calendar", brand: "calendar" },
+  { name: "Notion", brand: "notion" },
+  { name: "Zoom", brand: "zoom" },
+  { name: "LinkedIn", brand: "linkedin" },
 ];
 
-const CACHE_KEY = "sb_dashboard_live_v2"; // persists across page loads; Refresh re-pulls
+const CACHE_KEY = "sb_dashboard_live_v3"; // persists across page loads; Refresh re-pulls (v3: linkedin.series added)
 
 export default function DashboardPage() {
   const [resp, setResp] = useState<LiveResp | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chatOpen, setChatOpen] = useState(true);
 
   const load = useCallback((refresh = false) => {
     setLoading(true);
@@ -102,7 +94,6 @@ export default function DashboardPage() {
 
   const d = resp?.live ? resp.data : undefined;
   const li = resp?.linkedin;
-  const status: "loading" | "live" | "demo" | "error" = loading ? "loading" : resp?.live ? "live" : resp?.error ? "error" : "demo";
 
   // hero KPIs: LinkedIn engagement (real) + the best live app metric
   const liKpis = li
@@ -120,7 +111,7 @@ export default function DashboardPage() {
   const meetings = d?.meetings;
 
   return (
-    <div className="relative min-h-screen w-full bg-[#02040a] text-white">
+    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#02040a] text-white">
       <div className="pointer-events-none fixed inset-0" style={{ background: "radial-gradient(130% 90% at 50% 0%, #070c18 0%, #02040a 55%, #010207 100%)" }} />
       <div
         className="pointer-events-none fixed inset-0 opacity-[0.22]"
@@ -134,20 +125,29 @@ export default function DashboardPage() {
       <div className="blob-a pointer-events-none fixed -left-32 top-24 h-[420px] w-[420px] rounded-full bg-cyan-500/[0.07] blur-[120px]" />
       <div className="blob-b pointer-events-none fixed -right-28 top-1/3 h-[460px] w-[460px] rounded-full bg-violet-500/[0.07] blur-[130px]" />
 
-      <TopBar status={status} loading={loading} onRefresh={() => load(true)} />
+      {/* ONE unified full-width header spanning the dashboard + the control centre */}
+      <UnifiedHeader loading={loading} onRefresh={() => load(true)} chatOpen={chatOpen} onToggleChat={() => setChatOpen((o) => !o)} />
 
-      <main className="relative z-10 mx-auto w-full max-w-[1400px] px-5 pb-16 pt-6 md:px-8">
-        {/* LinkedIn engagement — real data from the scraped post set */}
-        <SectionHeader title="LinkedIn engagement · last 200 posts" />
+      <div className="relative z-10 flex min-h-0 flex-1">
+        {/* LEFT — dashboard scrolls (data-lenis-prevent so the global smooth-scroll
+            doesn't steal the wheel; no-scrollbar hides the bar). */}
+        <div data-lenis-prevent className="no-scrollbar min-w-0 flex-1 overflow-y-auto">
+        <main className="mx-auto w-full max-w-[1180px] px-5 pb-14 pt-6 md:px-8">
+        {/* LinkedIn KPIs */}
         <Rise>
           <StatBand kpis={heroKpis} loading={loading && !li} />
         </Rise>
 
+        {/* connected apps — between the LinkedIn KPIs and the engagement trend; light up as the Operator uses them */}
+        <Rise delay={0.06} className="mt-4">
+          <ConnectedApps />
+        </Rise>
+
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Rise delay={0.06} className="lg:col-span-2">
-            <TopPostPanel li={li} loading={loading && !li} />
+          <Rise delay={0.1} className="lg:col-span-2">
+            <EngagementGraph li={li} loading={loading && !li} />
           </Rise>
-          <Rise delay={0.1}>
+          <Rise delay={0.14}>
             <MeetingsPanel meetings={meetings} loading={loading} />
           </Rise>
         </div>
@@ -158,19 +158,15 @@ export default function DashboardPage() {
             <div className="mt-7">
               <SectionHeader title="Live · your connected apps" />
             </div>
-            <Rise delay={0.14}>
+            <Rise delay={0.16}>
               <MiniStatStrip stats={liveMini} />
             </Rise>
           </>
         )}
 
-        <Rise delay={0.18} className="mt-4">
-          <ConnectedApps />
-        </Rise>
-
         {/* financials — the only placeholders (no Stripe) */}
         <div className="mt-8 mb-3 flex items-center gap-2.5">
-          <h2 className="text-[13px] font-semibold uppercase tracking-[0.2em] text-white/55">Financials</h2>
+          <h2 className="text-[14px] font-semibold uppercase tracking-[0.2em] text-white/55">Financials</h2>
           <span className="rounded-full border border-amber-400/25 bg-amber-400/[0.08] px-2 py-0.5 text-[9.5px] font-medium uppercase tracking-wider text-amber-300">
             Demo · connect Stripe for live
           </span>
@@ -183,68 +179,89 @@ export default function DashboardPage() {
         <p className="mt-8 text-center text-[11px] text-white/25">
           Second Brain · LinkedIn from real post data · meetings &amp; activity live via Zapier · financials are placeholder until Stripe
         </p>
-      </main>
+        </main>
+        </div>
+
+        {/* RIGHT — the operator: a full agent over the MCPs + second brain */}
+        <aside
+          className={cn(
+            "hidden h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-out lg:block",
+            chatOpen ? "w-[34%] min-w-[360px] max-w-[460px] border-l border-white/[0.08]" : "w-0 border-l-0"
+          )}
+        >
+          <div className="h-full min-w-[360px]">
+            <AgentChatPanel />
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
 
 /* ─────────────────── top bar ─────────────────── */
 
-function TopBar({ status, loading, onRefresh }: { status: "loading" | "live" | "demo" | "error"; loading: boolean; onRefresh: () => void }) {
-  const [clock, setClock] = useState("");
-  useEffect(() => {
-    const tick = () => setClock(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
-
+function UnifiedHeader({
+  loading,
+  onRefresh,
+  chatOpen,
+  onToggleChat,
+}: {
+  loading: boolean;
+  onRefresh: () => void;
+  chatOpen: boolean;
+  onToggleChat: () => void;
+}) {
   return (
-    <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#02040a]/70 backdrop-blur-xl">
-      <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-4 px-5 py-3.5 md:px-8">
+    <header className="relative z-30 flex shrink-0 items-stretch border-b border-white/[0.07] bg-[#02040a]/75 backdrop-blur-xl">
+      {/* left — dashboard */}
+      <div className="flex flex-1 items-center justify-between gap-4 px-5 py-3 md:px-8">
         <div className="flex items-center gap-3">
           <Link href="/jarvis" className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/55 transition hover:border-cyan-300/40 hover:text-white" title="Back to mission control">
             <ArrowLeft size={16} weight="bold" />
           </Link>
           <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-300/30 bg-cyan-400/10 text-cyan-300">
-            <Lightning size={18} weight="fill" />
+            <SquaresFour size={17} weight="fill" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[14px] font-bold tracking-[0.2em] text-cyan-100">SECOND BRAIN</span>
-              <span className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white/45">Mission Control</span>
-            </div>
-            <div className="text-[10.5px] text-white/35">Live operating dashboard</div>
-          </div>
+          <span className="text-[16px] font-semibold tracking-tight text-white">Dashboard</span>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <span
-            className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10.5px] font-medium sm:flex ${
-              status === "live"
-                ? "border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-300"
-                : status === "loading"
-                  ? "border-amber-400/25 bg-amber-400/[0.08] text-amber-300"
-                  : status === "error"
-                    ? "border-rose-400/30 bg-rose-400/[0.08] text-rose-300"
-                    : "border-white/15 bg-white/[0.05] text-white/55"
-            }`}
-          >
-            <Pulse size={12} weight="bold" className={status === "loading" ? "animate-pulse" : ""} />
-            {status === "live" ? "Live · connected apps" : status === "loading" ? "Syncing connected apps…" : status === "error" ? "Apps offline · LinkedIn live" : "LinkedIn live · apps idle"}
-          </span>
-          <span className="hidden font-mono text-[12px] tabular-nums tracking-widest text-cyan-200/75 md:block">{clock}</span>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            title="Re-pull live data from your connected apps"
-            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11.5px] text-white/65 transition hover:border-cyan-300/40 hover:text-white disabled:opacity-50"
-          >
-            <ArrowsClockwise size={13} weight="bold" className={loading ? "animate-spin" : ""} />
-            {loading ? "Syncing" : "Refresh"}
-          </button>
-        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          title="Refresh data"
+          className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/65 transition hover:border-cyan-300/40 hover:text-white disabled:opacity-50"
+        >
+          <ArrowsClockwise size={13} weight="bold" className={loading ? "animate-spin" : ""} />
+          {loading ? "Syncing" : "Refresh"}
+        </button>
       </div>
+
+      {/* right — Command Centre toggle; the border-l is the separation where the chat panel starts */}
+      <button
+        onClick={onToggleChat}
+        aria-pressed={chatOpen}
+        title={chatOpen ? "Collapse the Command Centre" : "Open the Command Centre"}
+        className={cn(
+          "group hidden items-center gap-2.5 border-l border-white/[0.08] px-4 text-left transition hover:bg-white/[0.03] lg:flex",
+          chatOpen && "lg:w-[34%] lg:min-w-[360px] lg:max-w-[460px]"
+        )}
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300/25 to-violet-400/20 text-cyan-200 ring-1 ring-inset ring-white/15">
+          <Faders size={16} weight="fill" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-[14px] font-semibold leading-tight text-white">Command Centre</div>
+          {chatOpen && <div className="text-[10.5px] text-white/40">Acts across your apps &amp; brain</div>}
+        </div>
+        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+          {chatOpen && (
+            <span className="hidden items-center gap-1.5 rounded-full bg-emerald-400/[0.08] px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-inset ring-emerald-400/20 xl:flex">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
+            </span>
+          )}
+          <CaretRight size={15} weight="bold" className={cn("text-white/45 transition-transform group-hover:text-white", !chatOpen && "rotate-180")} />
+        </span>
+      </button>
     </header>
   );
 }
@@ -254,51 +271,93 @@ function TopBar({ status, loading, onRefresh }: { status: "loading" | "live" | "
 function SectionHeader({ title }: { title: string }) {
   return (
     <div className="mb-3 flex items-center gap-2.5">
-      <h2 className="text-[13px] font-semibold uppercase tracking-[0.2em] text-white/55">{title}</h2>
+      <h2 className="text-[14px] font-semibold uppercase tracking-[0.2em] text-white/55">{title}</h2>
       <div className="h-px flex-1 bg-gradient-to-r from-white/12 to-transparent" />
     </div>
   );
 }
 
-function TopPostPanel({ li, loading }: { li?: LinkedInMetrics; loading?: boolean }) {
+function EngagementGraph({ li, loading }: { li?: LinkedInMetrics; loading?: boolean }) {
   return (
-    <Panel title="Top LinkedIn post" subtitle="Highest engagement" accent="#d946ef" glow="#d946ef" className="h-full">
+    <Panel title="Engagement trend" subtitle="Reactions + comments + reposts · last 28 posts" accent="#d946ef" glow="#d946ef" className="h-full">
       {loading || !li ? (
         <div className="flex flex-col gap-3 pt-1">
-          <div className="lead-shimmer h-16 w-full rounded-xl" />
+          <div className="lead-shimmer h-[150px] w-full rounded-xl" />
           <div className="lead-shimmer h-3 w-1/2" />
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-fuchsia-300/15 bg-fuchsia-400/[0.04] p-3.5">
-            <p className="text-[13.5px] font-medium leading-relaxed text-white/85">“{li.topPost.hook}…”</p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-white/55">
-              <span className="flex items-center gap-1.5">
-                <Heart size={13} weight="fill" className="text-rose-300/80" /> {li.topPost.reactions.toLocaleString()}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <ChatCircle size={13} weight="fill" className="text-cyan-300/80" /> {li.topPost.comments.toLocaleString()}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <ShareNetwork size={13} weight="fill" className="text-emerald-300/80" /> {li.topPost.shares.toLocaleString()}
-              </span>
-            </div>
-          </div>
-          <div className="mt-auto grid grid-cols-3 gap-2.5 pt-3">
-            {[
-              { l: "Posts", v: li.posts.toLocaleString() },
-              { l: "Total engagement", v: fmtCompact(li.totalEngagement) },
-              { l: "Reposts", v: fmtCompact(li.shares) },
-            ].map((s) => (
-              <div key={s.l} className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-                <div className="text-[17px] font-bold leading-none text-white">{s.v}</div>
-                <div className="mt-1 text-[10.5px] text-white/40">{s.l}</div>
-              </div>
-            ))}
+          <SparkArea series={li.series ?? []} avg={li.avgEngagement} />
+          <div className="mt-3 grid grid-cols-3 gap-2.5">
+            <GraphStat icon={Heart} color="#fb7185" label="Reactions" value={fmtCompact(li.reactions)} />
+            <GraphStat icon={ChatCircle} color="#22d3ee" label="Comments" value={fmtCompact(li.comments)} />
+            <GraphStat icon={ShareNetwork} color="#34d399" label="Reposts" value={fmtCompact(li.shares)} />
           </div>
         </>
       )}
     </Panel>
+  );
+}
+
+function SparkArea({ series, avg }: { series: number[]; avg: number }) {
+  const w = 600;
+  const h = 156;
+  const pad = 8;
+  const data = Array.isArray(series) && series.length > 1 ? series : [0, 0];
+  const max = Math.max(...data, 1);
+  const stepX = (w - pad * 2) / (data.length - 1);
+  const pts = data.map((v, i) => [pad + i * stepX, h - pad - (v / max) * (h - pad * 2)] as const);
+  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${h} L${pts[0][0].toFixed(1)},${h} Z`;
+  const last = pts[pts.length - 1];
+  return (
+    <div className="relative h-[156px] w-full overflow-hidden rounded-xl border border-white/[0.06] bg-gradient-to-b from-fuchsia-500/[0.05] to-transparent">
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-full w-full">
+        <defs>
+          <linearGradient id="engFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#d946ef" stopOpacity="0.34" />
+            <stop offset="100%" stopColor="#d946ef" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="engLine" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#a78bfa" />
+            <stop offset="100%" stopColor="#f0abfc" />
+          </linearGradient>
+        </defs>
+        <motion.path d={area} fill="url(#engFill)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.9, delay: 0.25 }} />
+        <motion.path
+          d={line}
+          fill="none"
+          stroke="url(#engLine)"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+          initial={{ pathLength: 0 }}
+          animate={{ pathLength: 1 }}
+          transition={{ duration: 1.15, ease: [0.4, 0, 0.2, 1] }}
+        />
+      </svg>
+      {/* pulsing marker on the most recent post (positioned in %) */}
+      <span
+        className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-fuchsia-300"
+        style={{ left: `${(last[0] / w) * 100}%`, top: `${(last[1] / h) * 100}%`, boxShadow: "0 0 12px 2px rgba(217,70,239,0.7)" }}
+      />
+      <div className="pointer-events-none absolute right-3 top-2.5 rounded-full bg-black/30 px-2.5 py-1 text-[11px] font-medium text-white/60 backdrop-blur">
+        avg {avg.toLocaleString()}/post
+      </div>
+    </div>
+  );
+}
+
+function GraphStat({ icon: Icon, color, label, value }: { icon: PhIcon; color: string; label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+      <div className="flex items-center gap-1.5">
+        <Icon size={14} weight="fill" style={{ color }} />
+        <span className="text-[18px] font-bold leading-none text-white">{value}</span>
+      </div>
+      <div className="mt-1 text-[11.5px] text-white/40">{label}</div>
+    </div>
   );
 }
 
@@ -319,21 +378,66 @@ function FinancialStrip() {
 }
 
 function ConnectedApps() {
+  const active = useOperatorActivity((s) => s.active);
   return (
-    <Panel title="Connected apps" subtitle="Live via Zapier MCP" accent="#34d399" glow="#34d399">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-        {CONNECTED.map((a) => (
-          <div key={a.name} className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-            <span className="flex items-center gap-2.5 text-[12.5px] text-white/75">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg border" style={{ background: `${a.color}1a`, borderColor: `${a.color}40`, color: a.color }}>
-                <a.Icon size={15} weight="fill" />
-              </span>
-              {a.name}
-            </span>
-            <StatusDot color="#34d399" pulse />
-          </div>
-        ))}
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+      {CONNECTED.map((a) => (
+        <AppCard key={a.name} app={a} active={active.includes(a.brand)} />
+      ))}
+    </div>
+  );
+}
+
+function AppCard({ app, active }: { app: { name: string; brand: string }; active: boolean }) {
+  const color = BRANDS[app.brand]?.color ?? "#22d3ee";
+  return (
+    <div
+      className={cn(
+        "group relative flex flex-col items-center gap-2.5 overflow-hidden rounded-2xl border bg-white/[0.025] px-3 py-4 transition-all duration-300",
+        active ? "border-white/20 bg-white/[0.06]" : "border-white/[0.07] hover:-translate-y-0.5 hover:border-white/15 hover:bg-white/[0.04]"
+      )}
+      style={{
+        boxShadow: active
+          ? `0 0 0 1px ${color}80, 0 14px 50px -14px ${color}, inset 0 0 36px -10px ${color}66`
+          : `inset 0 0 24px -14px ${color}55`,
+      }}
+    >
+      {/* brand-tinted top bloom; intensifies when the Operator is using the app */}
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-2/3 transition-opacity duration-500"
+        style={{ background: `radial-gradient(90% 70% at 50% 0%, ${color}${active ? "33" : "14"}, transparent 72%)` }}
+      />
+      {/* green "connected" indicator */}
+      <span className="absolute right-2.5 top-2.5 flex h-2 w-2 items-center justify-center" title="Connected">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/50" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" style={{ boxShadow: "0 0 7px 1px rgba(52,211,153,0.85)" }} />
+      </span>
+      <div className="relative">
+        <BrandMark brand={app.brand} size={48} radius={14} />
+        {active && (
+          <motion.span
+            className="absolute -inset-1 rounded-[18px]"
+            style={{ boxShadow: `0 0 0 2px ${color}` }}
+            animate={{ opacity: [0.35, 1, 0.35], scale: [0.96, 1.06, 0.96] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+          />
+        )}
       </div>
-    </Panel>
+      <div className="relative text-center">
+        <div className="text-[13px] font-semibold text-white/85">{app.name}</div>
+        <div
+          className={cn("mt-0.5 flex items-center justify-center gap-1 text-[10.5px] font-medium", !active && "text-white/35")}
+          style={active ? { color } : undefined}
+        >
+          {active ? (
+            <>
+              <span className="h-1 w-1 animate-pulse rounded-full" style={{ background: color }} /> Working
+            </>
+          ) : (
+            "Connected"
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

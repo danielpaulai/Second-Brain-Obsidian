@@ -64,12 +64,13 @@ export const ORG: Record<JarvisNodeId, OrgNode> = {
   carousel: { id: "carousel", kind: "format", title: "Carousel", label: "Swipe-through decks", color: "#d946ef", icon: "Cards", parent: "content", agentKey: "content" },
   reels: { id: "reels", kind: "format", title: "Reels", label: "Short-form scripts", color: "#f472b6", icon: "VideoCamera", parent: "content", agentKey: "content" },
   longform: { id: "longform", kind: "format", title: "Long-form", label: "Long-form scripts", color: "#818cf8", icon: "FilmSlate", parent: "content", agentKey: "content" },
+  newsletter: { id: "newsletter", kind: "format", title: "Newsletter", label: "Email newsletters", color: "#fb7185", icon: "EnvelopeSimple", parent: "content", agentKey: "content" },
 };
 
 export const ALL_NODES: OrgNode[] = Object.values(ORG);
 export const DEPARTMENTS: OrgNode[] = ALL_NODES.filter((n) => n.kind === "department");
 
-export const FORMAT_IDS: JarvisNodeId[] = ["text", "picture", "carousel", "reels", "longform"];
+export const FORMAT_IDS: JarvisNodeId[] = ["text", "picture", "carousel", "reels", "longform", "newsletter"];
 export function isFormat(id: JarvisNodeId): boolean {
   return FORMAT_IDS.includes(id);
 }
@@ -135,7 +136,8 @@ export function keywordRoute(instruction: string): TeamPlan {
 
   // CMO — one content format
   let format: JarvisNodeId | null = null;
-  if (has("carousel", "slides", "slide deck", "swipe", "cheatsheet", "cheat sheet", "listicle")) format = "carousel";
+  if (has("newsletter", "email newsletter", "broadcast", "email blast", "email campaign", "weekly email")) format = "newsletter";
+  else if (has("carousel", "slides", "slide deck", "swipe", "cheatsheet", "cheat sheet", "listicle")) format = "carousel";
   else if (has("picture", "image post", "graphic", "single image")) format = "picture";
   else if (has("reel", "short form", "short-form", "tiktok")) format = "reels";
   else if (has("long form", "long-form", "youtube", "video script", "vsl")) format = "longform";

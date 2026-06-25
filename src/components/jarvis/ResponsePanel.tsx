@@ -7,6 +7,7 @@ import { node } from "@/lib/org";
 import { Blocks, parseBlocks } from "@/components/blocks/Blocks";
 import CarouselArtifact from "./CarouselArtifact";
 import LeadsArtifact from "./LeadsArtifact";
+import NewsletterArtifact from "./NewsletterArtifact";
 import BrainOrb from "./BrainOrb";
 import type { JarvisRunState } from "./useJarvisRun";
 
@@ -19,7 +20,7 @@ import type { JarvisRunState } from "./useJarvisRun";
  *      agent is running, pulsing on every event.
  */
 
-type DeliverableKey = "report" | "carousel" | "leads";
+type DeliverableKey = "report" | "carousel" | "leads" | "newsletter";
 
 export default function ResponsePanel({ state }: { state: JarvisRunState }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -36,6 +37,7 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
   const deliverables: { key: DeliverableKey; label: string }[] = [];
   if (blocks.length > 0) deliverables.push({ key: "report", label: "Briefing" });
   if (state.artifact) deliverables.push({ key: "carousel", label: "Carousel" });
+  if (state.newsletter) deliverables.push({ key: "newsletter", label: "Newsletter" });
   if (state.leads) deliverables.push({ key: "leads", label: "Leads" });
   const [tab, setTab] = useState<DeliverableKey | null>(null);
   const activeKey = tab && deliverables.some((d) => d.key === tab) ? tab : deliverables[0]?.key;
@@ -72,6 +74,10 @@ export default function ResponsePanel({ state }: { state: JarvisRunState }) {
           ) : activeKey === "carousel" && state.artifact ? (
             <motion.div key="artifact" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
               <CarouselArtifact data={state.artifact} />
+            </motion.div>
+          ) : activeKey === "newsletter" && state.newsletter ? (
+            <motion.div key="newsletter" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
+              <NewsletterArtifact data={state.newsletter} />
             </motion.div>
           ) : activeKey === "report" && blocks.length > 0 ? (
             <motion.div key="report" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChartLineUp, ArrowSquareOut, Brain, GearSix, ListBullets } from "@phosphor-icons/react";
+import { ChartLineUp, ArrowSquareOut, Brain, GearSix, ListBullets, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
+import { isMuted, setMuted } from "@/lib/sounds";
 import HudFrame from "@/components/jarvis/HudFrame";
 import OrgPyramid from "@/components/jarvis/OrgPyramid";
 import ResponsePanel from "@/components/jarvis/ResponsePanel";
@@ -74,6 +75,9 @@ export default function JarvisPage() {
         {boardOpen && <MissionBoard state={state} onClose={() => setBoardOpen(false)} />}
       </HudFrame>
 
+      {/* Sound on/off — the brain ambience + run cues */}
+      <SoundToggle />
+
       {/* Settings — knowledge docs (rich editor) + branding/brand kit */}
       <button
         onClick={() => setSettingsOpen(true)}
@@ -107,5 +111,25 @@ export default function JarvisPage() {
         <ArrowSquareOut size={13} weight="bold" className="opacity-60 transition group-hover:opacity-100" />
       </Link>
     </div>
+  );
+}
+
+/** Small fixed mute toggle for the /jarvis ambience + cues (persists). */
+function SoundToggle() {
+  const [muted, setMutedState] = useState(false);
+  useEffect(() => setMutedState(isMuted()), []);
+  const toggle = () => {
+    const next = !muted;
+    setMuted(next);
+    setMutedState(next);
+  };
+  return (
+    <button
+      onClick={toggle}
+      title={muted ? "Sound off — click to enable" : "Sound on — click to mute"}
+      className="group fixed bottom-[116px] right-7 z-40 flex h-10 w-10 items-center justify-center rounded-xl border border-white/12 bg-white/[0.04] text-white/55 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl transition hover:border-cyan-300/50 hover:text-white"
+    >
+      {muted ? <SpeakerSlash size={17} weight="duotone" /> : <SpeakerHigh size={17} weight="duotone" />}
+    </button>
   );
 }

@@ -130,6 +130,83 @@ export async function callZapierTool(name: string, args: Record<string, unknown>
   }
 }
 
+/** The actions exposed for ONE connected app (by selected_api), with exact keys. */
+export async function listZapierActions(selected_api: string): Promise<Array<{ key: string; name: string; write: boolean }>> {
+  const r = await callZapierTool("list_enabled_zapier_actions", { selected_api });
+  const d = r.data as unknown;
+  const acts = (Array.isArray(d) ? (d[0] as Record<string, unknown>)?.actions : (d as Record<string, unknown>)?.actions) as Record<string, unknown>[] | undefined;
+  return (acts ?? [])
+    .map((a) => ({ key: String(a.key ?? ""), name: String(a.name ?? ""), write: a.tool === "execute_zapier_write_action" }))
+    .filter((a) => a.key);
+}
+
+/** Resolve a (possibly guessed) action to a real key for this app: exact, then best token match. */
+export function matchZapierAction(actions: Array<{ key: string; name: string }>, proposed: string): string | null {
+  if (!proposed) return null;
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const p = norm(proposed);
+  const exact = actions.find((a) => a.key.toLowerCase() === proposed.toLowerCase() || norm(a.key) === p || norm(a.name) === p);
+  if (exact) return exact.key;
+  const pTokens = p.split(/\s+/).filter(Boolean);
+  let best: string | null = null;
+  let bestScore = 0;
+  let bestLen = Infinity;
+  for (const a of actions) {
+    const hay = norm(`${a.key} ${a.name}`);
+    let score = 0;
+    for (const t of pTokens) if (hay.includes(t)) score += 1;
+    if (p && hay.includes(p)) score += 3;
+    // tie-break: prefer the shortest (most specific) matching key
+    if (score > bestScore || (score === bestScore && score > 0 && a.key.length < bestLen)) {
+      bestScore = score;
+      best = a.key;
+      bestLen = a.key.length;
+    }
+  }
+  return bestScore >= 1 ? best : null;
+}
+
+/** True when an action result is really a "key not found" error (not read content). */
+function looksLikeMissingAction(r: ZapierCallResult): boolean {
+  const errStr = r.error ?? "";
+  const dataErr = r.data && typeof r.data === "object" ? String((r.data as Record<string, unknown>).error ?? "") : "";
+  return /not found|exact key|no such action|unknown action|invalid action/i.test(`${errStr} ${dataErr}`);
+}
+
+/**
+ * Execute a Zapier read/write action FOOLPROOF: always passes the required `output`
+ * string; if the action key is wrong ("Action 'x' not found" — the agent guessed),
+ * it resolves the key against the app's LIVE action list and retries once. If it
+ * still can't match, it returns the available keys so the caller can recover.
+ */
+export async function executeZapierAction(
+  kind: "read" | "write",
+  args: { selected_api: string; action: string; instructions?: string; params?: Record<string, unknown>; output?: string }
+): Promise<ZapierCallResult & { resolvedAction?: string; available?: string[] }> {
+  const toolName = kind === "write" ? "execute_zapier_write_action" : "execute_zapier_read_action";
+  const payload = {
+    selected_api: args.selected_api,
+    instructions: args.instructions ?? "",
+    params: args.params ?? {},
+    output: args.output ?? (kind === "write" ? "the id, link, status or confirmation of the action that ran" : ""),
+  };
+  let r = await callZapierTool(toolName, { ...payload, action: args.action });
+  if (r.ok && !looksLikeMissingAction(r)) return r;
+
+  // the key was wrong → resolve against the real action list and retry once
+  const actions = await listZapierActions(args.selected_api);
+  const resolved = matchZapierAction(actions, args.action);
+  if (resolved && resolved.toLowerCase() !== args.action.toLowerCase()) {
+    r = await callZapierTool(toolName, { ...payload, action: resolved });
+    return { ...r, resolvedAction: resolved };
+  }
+  if (!resolved) {
+    const available = actions.filter((a) => (kind === "write" ? a.write : true)).map((a) => a.key);
+    return { ok: false, data: r.data, error: `Action '${args.action}' not found for ${args.selected_api}.`, available };
+  }
+  return r;
+}
+
 /**
  * The Zapier actions wrapped as Vercel AI SDK tools — drop these into a
  * generateText/streamText call so an LLM can pull the last-7-days data itself

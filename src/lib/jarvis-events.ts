@@ -28,7 +28,8 @@ export type JarvisNodeId =
   | "picture"
   | "carousel"
   | "reels"
-  | "longform";
+  | "longform"
+  | "newsletter";
 
 /** A specialist's lifecycle phase, used to colour its node + feed row. */
 export type AgentPhase = "idle" | "waking" | "working" | "reporting" | "done";
@@ -58,6 +59,15 @@ export type CarouselArtifactData = {
   grounding: string[];
   /** the shared visual style paragraph — passed to the per-slide image endpoint */
   styleBible?: string;
+};
+
+export type NewsletterArtifactData = {
+  subject: string;
+  preview: string;
+  /** the complete, self-contained newsletter HTML — light-themed, in the founder's
+   *  brand DNA, with any generated image assets inlined as data URLs */
+  html: string;
+  grounding: string[];
 };
 
 /** One scraped prospect, flattened for the deliverable sheet. */
@@ -145,6 +155,7 @@ export type JarvisEvent =
   /** The finished deliverable. */
   | { type: "artifact"; kind: "carousel"; data: CarouselArtifactData; at: number }
   | { type: "artifact"; kind: "leads"; data: LeadsArtifactData; at: number }
+  | { type: "artifact"; kind: "newsletter"; data: NewsletterArtifactData; at: number }
   /** A rich, block-formatted report for the response panel (non-carousel runs). */
   | { type: "response"; format: "blocks"; markdown: string; at: number }
   | { type: "run.complete"; at: number }

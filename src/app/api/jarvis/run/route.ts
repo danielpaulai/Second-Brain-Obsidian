@@ -2,7 +2,7 @@ import { generateObject, generateText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { anthropicFetch } from "@/lib/anthropic-fetch";
-import { readBusinessDoc } from "@/lib/client-knowledge";
+import { readBusinessDoc, defaultClient } from "@/lib/client-knowledge";
 import {
   keywordRoute,
   node,
@@ -16,6 +16,7 @@ import {
   encodeEvent,
   type CarouselArtifactData,
   type LeadsArtifactData,
+  type NewsletterArtifactData,
   type LeadRow,
   type RouteAssignment,
   type JarvisEvent,
@@ -27,7 +28,10 @@ import { enrichLeads, type EnrichedLead } from "@/lib/lead-enrichment";
 import { leadsTestMode } from "@/lib/lead-fixtures";
 import { NO_EMDASH_RULE, deDash, stripEmDashes } from "@/lib/sanitize";
 import { runWebSearch } from "@/lib/research-tools";
-import { searchVault } from "@/lib/brain-vault";
+import { searchVault, readVaultNote } from "@/lib/brain-vault";
+import { getBrandKit } from "@/lib/brand-kit";
+import { generateImage, imageModelConfigured } from "@/lib/openai-image";
+import { buildNewsletterHtml, type NewsletterContent } from "@/lib/newsletter";
 import { getContentGuide } from "@/lib/content-guides";
 
 export const runtime = "nodejs";
@@ -65,6 +69,7 @@ const LEAF_IDS = [
   "carousel",
   "reels",
   "longform",
+  "newsletter",
   "leads",
   "webpages",
   "ops",
@@ -398,6 +403,165 @@ async function runCarousel(
 
   emit({ type: "agent.report", from: "carousel", to: "content", summary: "Carousel delivered", at: now() });
   await beat(450);
+  return data;
+}
+
+/* --------------------------- newsletter --------------------------- */
+
+const NewsletterSchema = z.object({
+  kicker: z.string().describe("a short eyebrow label shown above the title, e.g. 'The Founder's Note' or 'Weekly note'"),
+  subject: z.string().describe("the email subject line — specific, benefit- or curiosity-driven, never clickbait"),
+  preview: z.string().describe("inbox preview text (~60-90 chars) that complements the subject"),
+  title: z.string().describe("the headline shown at the top of the email body — short and punchy"),
+  intro: z.string().describe("a personal opening, 2-3 SHORT paragraphs (blank line between each), written to ONE reader in Danny's voice"),
+  sections: z
+    .array(
+      z.object({
+        heading: z.string().describe("3-7 word section heading"),
+        body: z
+          .string()
+          .describe(
+            "1-3 short paragraphs. Use Markdown structure where it genuinely helps readability: '- ' at line start for a bullet list, '### ' for a subheading, and **bold** for key phrases. Do not over-format."
+          ),
+      })
+    )
+    .min(2)
+    .max(4),
+  quote: z.string().nullable().describe("ONE short, punchy pull-quote (a single memorable sentence) to feature centered, or null if none fits"),
+  cta: z.object({ label: z.string().describe("a VERY short button label — 2-4 words, max ~24 characters — so it fits on ONE line in the button, e.g. 'Reply and tell me'"), url: z.string().describe("a real URL, or '#' if none was given") }),
+  signoff: z.string().describe("the sign-off line, e.g. '— Daniel'"),
+  heroPrompt: z
+    .string()
+    .describe(
+      "a SPECIFIC, thought-out visual CONCEPT for the hero illustration that captures THIS issue's core idea. Name the literal subject/objects in the frame AND the metaphor they convey — e.g. for 'stand out', 'a single warm-lit lighthouse rising above a calm sea of identical small gray boats'. A concrete designed scene, never a vague mood or generic office/business stock."
+    ),
+  inlinePrompt: z
+    .string()
+    .nullable()
+    .describe("an optional SECOND concept — a smaller supporting illustration tied to one specific section, described just as concretely as the hero — or null for none"),
+});
+
+/** Art-direct a PURPOSE-BUILT premium editorial illustration (not generic stock /
+ *  "AI photo" filler). `desc` is the content-specific concept the writer chose. */
+const newsletterImagePrompt = (desc: string, accent: string) =>
+  `A premium, purpose-built editorial illustration for a founder's newsletter — ONE strong, intentional idea, designed by a top brand studio, NOT a generic stock image.\n` +
+  `CONCEPT (what is literally in the frame, and the idea it conveys): ${desc}.\n` +
+  `STYLE: modern editorial vector illustration with subtle dimensional shading and a fine paper grain; bold, simple, confident shapes; ONE clear focal subject; deliberate composition with generous negative space and intentional use of scale.\n` +
+  `PALETTE: warm off-white / cream background, soft warm neutrals, and ${accent} crimson as the SINGLE bold accent. Light, airy, high-key, calm, expensive.\n` +
+  `STRICTLY AVOID: photographic stock look, corporate clip-art, smiling business people, hands pointing at floating charts, glossy 3D chrome spheres, random gradient blobs, neon, lens flares, busy clutter — and absolutely NO text, words, letters, numbers, logos, watermarks, or fake UI.`;
+
+/**
+ * Newsletter specialist: plan + write the issue from the founder's OWN newsletter
+ * playbook (vault note), render up to TWO light-themed image assets via gpt-image,
+ * fill the brand-DNA HTML template, and deliver it to the response box.
+ */
+async function runNewsletter(
+  instruction: string,
+  brief: string,
+  emit: Emit,
+  grounding: string[]
+): Promise<NewsletterArtifactData> {
+  emit({ type: "agent.activate", node: "newsletter", label: node("newsletter").label, at: now() });
+  await beat(420);
+  emit({ type: "agent.status", node: "newsletter", status: "Matching your voice", at: now() });
+  const voice = await readDoc("voice-dna", "newsletter", emit, grounding);
+
+  // The newsletter playbook lives in the founder's second brain (vault note).
+  emit({ type: "agent.status", node: "newsletter", status: "Reading your newsletter playbook", at: now() });
+  const guide = await readVaultNote("newsletter-structure");
+  if (guide.found) {
+    grounding.push("vault: newsletter-structure");
+    emit({ type: "agent.tool", node: "newsletter", tool: "Second Brain", detail: "newsletter-structure", at: now() });
+    await beat(220);
+  }
+
+  emit({ type: "agent.status", node: "newsletter", status: "Planning the issue", at: now() });
+
+  // grounded fallback so the run always delivers a real newsletter
+  let content: NewsletterContent = {
+    kicker: "The Founder's Note",
+    subject: "The one change that fills your pipeline",
+    preview: "Stop writing for the algorithm. Start writing for one person.",
+    title: "Stop writing for the algorithm",
+    intro:
+      "Quick one this week.\n\nMost founders treat their newsletter like a LinkedIn post with a subject line. That is the mistake. The newsletter is a private conversation at scale, not a broadcast.",
+    sections: [
+      { heading: "The shift", body: "Write to one person who paid to hear from you. Solve one problem they are Googling this week. That is the whole game." },
+      {
+        heading: "Why it works",
+        body: "Three reasons it compounds:\n\n- You own the list, so no algorithm decides who sees it\n- It fills your pipeline while you sleep\n- It is the one marketing asset nobody can take away",
+      },
+    ],
+    quote: "The newsletter is a private conversation at scale, not a broadcast.",
+    cta: { label: "Reply and tell me", url: "#" },
+    signoff: "— Daniel",
+  };
+  let heroPrompt = "";
+  let inlinePrompt: string | null = null;
+
+  try {
+    const { object } = await generateObject({
+      model: model(),
+      schema: NewsletterSchema,
+      maxTokens: 2400,
+      maxRetries: 1,
+      system:
+        "You are Danny's Newsletter specialist." +
+        (guide.found
+          ? `\n\nFollow this NEWSLETTER PLAYBOOK from the founder's own knowledge base — it is authoritative. Apply its core principle, structure, and rules:\n\n${(guide.content || "").slice(0, 7000)}\n\n---\n`
+          : "") +
+        `\n\nWrite ONE complete email newsletter in Danny's EXACT voice. It must read like a private note to ONE person, not a broadcast: personal, specific, genuinely useful. Solve one real problem or shift one belief, then sell softly with a single clear CTA at the end. Structure it cleanly for skim-reading: a short kicker, a punchy title, 2-4 scannable sections, the occasional bullet list or '### ' subheading ONLY where it earns its place, and ONE pull-quote if a sentence deserves the spotlight. Elegant and uncluttered, never busy. Short paragraphs. No corporate filler, no hashtag spam, never invent metrics.\n\nAlso act as ART DIRECTOR for the image assets: invent ONE concrete, purpose-built visual CONCEPT for the hero (and optionally a second for inline) that VISUALIZES a real idea from THIS specific newsletter — a metaphor or scene with specific objects, the kind a brand studio would design. Say exactly what is in the frame. Never generic office/laptop/handshake stock, never a vague mood.\n\n` +
+        NO_EMDASH_RULE,
+      prompt:
+        `Request: "${instruction}"\n\n` +
+        `Creative brief from Research:\n${brief}\n\n` +
+        (voice.found ? `Voice DNA:\n${voice.body.slice(0, 2200)}` : "Voice DNA unavailable — write in a confident, direct founder voice."),
+    });
+    const o = deDash(object);
+    content = {
+      kicker: o.kicker,
+      subject: o.subject,
+      preview: o.preview,
+      title: o.title,
+      intro: o.intro,
+      sections: o.sections,
+      quote: o.quote ?? undefined,
+      cta: o.cta,
+      signoff: o.signoff,
+    };
+    heroPrompt = o.heroPrompt;
+    inlinePrompt = o.inlinePrompt ?? null;
+  } catch {
+    /* keep grounded fallback */
+  }
+
+  emit({ type: "agent.output", node: "newsletter", summary: `“${content.subject}”`, at: now() });
+  await beat(200);
+
+  // Up to TWO gpt-image asset calls — LIGHT themed, rendered CONCURRENTLY so they
+  // stay well within the function budget.
+  const client = await defaultClient();
+  const brand = await getBrandKit(client);
+  const accent = brand?.accentHex || "#ED1846";
+  if (imageModelConfigured() && heroPrompt) {
+    emit({ type: "agent.status", node: "newsletter", status: "Rendering image assets · gpt-image", at: now() });
+    emit({ type: "agent.tool", node: "newsletter", tool: "gpt-image", detail: inlinePrompt ? "2 light assets" : "1 light asset", at: now() });
+    const quality = (process.env.OPENAI_IMAGE_QUALITY as "low" | "medium" | "high" | "auto") || "high";
+    const [hero, inline] = await Promise.all([
+      generateImage(newsletterImagePrompt(heroPrompt, accent), { quality, size: "1536x1024" }),
+      inlinePrompt ? generateImage(newsletterImagePrompt(inlinePrompt, accent), { quality, size: "1024x1024" }) : Promise.resolve(null),
+    ]);
+    content.heroImage = hero ?? undefined;
+    content.inlineImage = inline ?? undefined;
+  }
+
+  const html = buildNewsletterHtml(brand, content);
+  const data: NewsletterArtifactData = { subject: content.subject, preview: content.preview, html, grounding };
+  emit({ type: "agent.status", node: "newsletter", status: "Newsletter ready", at: now() });
+  emit({ type: "artifact", kind: "newsletter", data, at: now() });
+  await beat(200);
+  emit({ type: "agent.report", from: "newsletter", to: "content", summary: "Newsletter delivered", at: now() });
+  await beat(360);
   return data;
 }
 
@@ -783,6 +947,7 @@ type DeliverableSink = {
   contributions: { label: string; text: string }[];
   setCarousel: (d: CarouselArtifactData) => void;
   setLeads: (d: LeadsArtifactData) => void;
+  setNewsletter: (d: NewsletterArtifactData) => void;
 };
 
 /**
@@ -845,6 +1010,14 @@ async function runDepartment(
           text: `A ${d.slides.length}-slide carousel "${d.topic}" + caption was produced. (See the Carousel tab.)`,
         });
         summary = `Carousel on "${d.topic}" ready`;
+      } else if (leaf === "newsletter") {
+        const d = await runNewsletter(instruction, brief, emit, grounding);
+        sink.setNewsletter(d);
+        sink.contributions.push({
+          label: `${dept.title} · Newsletter`,
+          text: `A complete on-brand newsletter "${d.subject}" was written and rendered as a ready-to-send HTML email. (See the Newsletter tab.)`,
+        });
+        summary = `Newsletter "${d.subject}" ready`;
       } else {
         const out = await runScript(leaf, instruction, brief, emit, grounding);
         sink.contributions.push({ label: `${dept.title} · ${node(leaf).title}`, text: out });
@@ -932,6 +1105,7 @@ export async function POST(req: Request) {
         let brief = "";
         let madeCarousel = false;
         let madeLeads = false;
+        let madeNewsletter = false;
         const contributions: { label: string; text: string }[] = [];
         const sink: DeliverableSink = {
           contributions,
@@ -940,6 +1114,9 @@ export async function POST(req: Request) {
           },
           setLeads: () => {
             madeLeads = true;
+          },
+          setNewsletter: () => {
+            madeNewsletter = true;
           },
         };
 
@@ -963,7 +1140,7 @@ export async function POST(req: Request) {
         // The CEO folds it all into one briefing. Skip it only for a single
         // department whose deliverable IS a visual artifact (carousel / leads).
         const multi = route.assignments.length > 1;
-        const hasArtifact = madeCarousel || madeLeads;
+        const hasArtifact = madeCarousel || madeLeads || madeNewsletter;
         if (multi || !hasArtifact) {
           emit({ type: "agent.status", node: "kronos", status: "Folding it into one briefing", at: now() });
           await beat(300);

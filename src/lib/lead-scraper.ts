@@ -245,6 +245,93 @@ export function normalizeLead(item: Record<string, any>): Lead {
   };
 }
 
+/* ------------------------- single full profile ------------------------- */
+
+export type LinkedInProfile = Lead & {
+  about: string;
+  followers: number | null;
+  connections: number | null;
+  experience: { title: string; company: string; duration: string; location: string }[];
+  education: { school: string; degree: string; field: string; years: string }[];
+  skills: string[];
+};
+
+export type LinkedInProfileResult = {
+  configured: boolean;
+  found: boolean;
+  profile: LinkedInProfile | null;
+  note: string;
+  error?: string;
+};
+
+const numOrNull = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? parseInt(v.replace(/[^\d]/g, ""), 10) : NaN;
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Defensively pull the RICH profile fields the actor surfaces under varying keys. */
+function toProfile(item: Record<string, any>): LinkedInProfile {
+  const base = normalizeLead(item);
+  const exp = (item?.experience || item?.positions || item?.currentPositions || []) as Record<string, any>[];
+  const edu = (item?.education || item?.schools || item?.educations || []) as Record<string, any>[];
+  const skillsRaw = (item?.skills || item?.topSkills || []) as unknown[];
+  return {
+    ...base,
+    about: firstString(item?.about, item?.summary, item?.description, item?.bio),
+    followers: numOrNull(item?.followers ?? item?.followersCount ?? item?.followerCount),
+    connections: numOrNull(item?.connections ?? item?.connectionsCount),
+    experience: (Array.isArray(exp) ? exp : [])
+      .slice(0, 8)
+      .map((p) => ({
+        title: firstString(p?.title, p?.position, p?.role, p?.jobTitle),
+        company: firstString(p?.companyName, p?.company, p?.organization, p?.subtitle),
+        duration: firstString(p?.duration, p?.dateRange, p?.date, p?.period, p?.caption),
+        location: firstString(p?.location),
+      }))
+      .filter((e) => e.title || e.company),
+    education: (Array.isArray(edu) ? edu : [])
+      .slice(0, 6)
+      .map((e) => ({
+        school: firstString(e?.schoolName, e?.school, e?.title, e?.name),
+        degree: firstString(e?.degree, e?.degreeName, e?.subtitle),
+        field: firstString(e?.fieldOfStudy, e?.field),
+        years: firstString(e?.dateRange, e?.years, e?.date, e?.caption),
+      }))
+      .filter((e) => e.school),
+    skills: (Array.isArray(skillsRaw) ? skillsRaw : [])
+      .map((s) => (typeof s === "string" ? s : firstString((s as Record<string, any>)?.name, (s as Record<string, any>)?.title, (s as Record<string, any>)?.skill)))
+      .filter(Boolean)
+      .slice(0, 24),
+  };
+}
+
+/**
+ * Scrape ONE full LinkedIn profile (everything we can get) via the harvestapi
+ * actor in "Full" mode. `query` is a name, or name + company/title for precision.
+ */
+export async function scrapeLinkedInProfile(query: string): Promise<LinkedInProfileResult> {
+  const q = (query || "").trim();
+  if (!q) return { configured: apifyConfigured(), found: false, profile: null, note: "No name or query provided." };
+
+  const { input } = buildActorInput({ searchQuery: q, count: 1, findEmails: true });
+
+  if (leadsTestMode()) {
+    return { configured: true, found: true, profile: toProfile(fixtureSearchItems(1, true)[0]), note: "TEST MODE — mock profile." };
+  }
+  if (!apifyConfigured()) {
+    return { configured: false, found: false, profile: null, note: "LinkedIn scraping is not configured. Set APIFY_TOKEN to scrape live profiles." };
+  }
+
+  const res = await runActorSync<Record<string, any>>(LINKEDIN_SEARCH_ACTOR, input, { maxItems: 1, timeoutMs: 180_000 });
+  if (!res.ok) {
+    return { configured: true, found: false, profile: null, note: "Could not reach the scraper.", error: res.error };
+  }
+  if (!res.items.length) {
+    return { configured: true, found: false, profile: null, note: "No matching profile found." };
+  }
+  return { configured: true, found: true, profile: toProfile(res.items[0]), note: `Scraped via ${LINKEDIN_SEARCH_ACTOR}.` };
+}
+
 /* ------------------------------ scrape ------------------------------ */
 
 /**

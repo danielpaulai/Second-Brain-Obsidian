@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { BrainGraph as GraphData } from "@/lib/vault";
+import { ambientStart, ambientStop } from "@/lib/sounds";
 
 // The same cinematic "Synaptic Bloom" canvas the /stage page uses. Heavy (d3 +
 // canvas), so client-only.
@@ -18,6 +19,14 @@ let cachedGraph: GraphData | null = null;
  */
 export default function BrainOrb() {
   const [graph, setGraph] = useState<GraphData | null>(cachedGraph);
+
+  // The brain "hums" while it's on screen (idle + thinking); fades out when a
+  // deliverable replaces it. Audio stays silent until the first user gesture
+  // unlocks Web Audio, then swells in.
+  useEffect(() => {
+    ambientStart();
+    return () => ambientStop();
+  }, []);
 
   useEffect(() => {
     if (cachedGraph) return;

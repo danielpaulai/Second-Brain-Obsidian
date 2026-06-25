@@ -1,0 +1,65 @@
+{
+  "gmail": {
+    "name": "Gmail",
+    "logo": "/logos/gmail.svg",
+    "accent": "#EA4335",
+    "apiAccent": "#1A73E8",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 3742
+  },
+  "slack": {
+    "name": "Slack",
+    "logo": "/logos/slack.svg",
+    "accent": "#611F69",
+    "apiAccent": "#611F69",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 1587
+  },
+  "notion": {
+    "name": "Notion",
+    "logo": "/logos/notion.svg",
+    "accent": "#E6E6E4",
+    "apiAccent": "#E16259",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 1704
+  },
+  "zoom": {
+    "name": "Zoom",
+    "logo": "/logos/zoom.png",
+    "accent": "#2D8CFF",
+    "apiAccent": "#00EDE7",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 2720
+  },
+  "linkedin": {
+    "name": "LinkedIn",
+    "logo": "/logos/linkedin.svg",
+    "accent": "#0A66C2",
+    "apiAccent": "#0A66C2",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 1315
+  },
+  "googlecalendar": {
+    "name": "Google",
+    "logo": "/logos/googlecalendar.svg",
+    "accent": "#4285F4",
+    "apiAccent": "#4285F4",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 9845
+  },
+  "google": {
+    "name": "Google",
+    "logo": "/logos/google.svg",
+    "accent": "#4285F4",
+    "apiAccent": "#4285F4",
+    "type": "symbol",
+    "theme": "dark",
+    "bytes": 9845
+  }
+}

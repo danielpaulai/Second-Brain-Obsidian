@@ -177,7 +177,7 @@ async function gatherDashboard(debug: boolean): Promise<(DashboardLive & { _debu
         action: c.action,
         instructions: c.instructions,
         params: {},
-        output: c.output,
+        output: c.output ?? "",
       });
       const d = r.data as any;
       const records = Array.isArray(d?.results) ? d.results : d?.results != null ? [d.results] : [];

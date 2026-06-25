@@ -19,6 +19,8 @@ export type LinkedInMetrics = {
   totalEngagement: number;
   avgEngagement: number;
   topPost: { hook: string; reactions: number; comments: number; shares: number };
+  /** engagement per recent post, oldest→newest — drives the trend graph */
+  series: number[];
 };
 
 export function linkedinMetrics(): LinkedInMetrics {
@@ -43,7 +45,15 @@ export function linkedinMetrics(): LinkedInMetrics {
   }
   const totalEngagement = reactions + comments + shares;
   const te = top?.engagement ?? {};
+  // most recent ~28 posts, flipped to chronological order for a left→right trend
+  const series = POSTS.slice(0, 28)
+    .map((p) => {
+      const e = p.engagement ?? {};
+      return (e.likes ?? 0) + (e.comments ?? 0) + (e.shares ?? 0);
+    })
+    .reverse();
   return {
+    series,
     posts: POSTS.length,
     reactions,
     comments,

@@ -5,10 +5,67 @@ import {
   drainEvents,
   type CarouselArtifactData,
   type LeadsArtifactData,
+  type NewsletterArtifactData,
   type JarvisEvent,
   type JarvisNodeId,
 } from "@/lib/jarvis-events";
 import { node } from "@/lib/org";
+import { sounds } from "@/lib/sounds";
+
+// Turn raw, technical tool names into human, on-brand phrasing for the feed.
+const TOOL_HUMAN: Record<string, string> = {
+  "gpt-image": "Generating the visuals",
+  "Second Brain": "Searching your second brain",
+  "Content guide": "Reading your playbook",
+  "Voice DNA": "Matching your voice",
+};
+function humanizeTool(tool: string): string {
+  if (TOOL_HUMAN[tool]) return TOOL_HUMAN[tool];
+  const t = tool.toLowerCase();
+  if (t.includes("image")) return "Generating the visuals";
+  if (t.includes("web") || t.includes("search")) return "Searching the web";
+  if (t.includes("apify") || t.includes("scrap") || t.includes("lead")) return "Finding the right people";
+  if (t.includes("brain") || t.includes("vault")) return "Searching your second brain";
+  return tool;
+}
+
+// Subtle audio cues as events stream in. The frequent "message-level" events share
+// one throttle so a burst feels like a gentle patter, not a machine-gun.
+let lastTick = 0;
+function playEventSound(e: JarvisEvent) {
+  const throttled = (fn: () => void) => {
+    const now = Date.now();
+    if (now - lastTick < 110) return;
+    lastTick = now;
+    fn();
+  };
+  switch (e.type) {
+    case "route":
+      sounds.open();
+      break;
+    case "agent.activate":
+      throttled(sounds.switchAgent);
+      break;
+    case "agent.output":
+    case "agent.report":
+      throttled(sounds.message);
+      break;
+    case "artifact":
+      sounds.reply();
+      break;
+    case "response":
+      sounds.notify();
+      break;
+    case "run.complete":
+      sounds.complete();
+      break;
+    case "run.error":
+      sounds.error();
+      break;
+    default:
+      break;
+  }
+}
 
 export type NodePhase = "idle" | "waking" | "working" | "reporting" | "done";
 
@@ -36,6 +93,8 @@ export type JarvisRunState = {
   artifact?: CarouselArtifactData;
   /** the scraped prospect deliverable (CRO / leads runs) */
   leads?: LeadsArtifactData;
+  /** a complete on-brand HTML newsletter (light-themed email) */
+  newsletter?: NewsletterArtifactData;
   /** a rich block-formatted report (markdown w/ block tokens) for non-carousel runs */
   response?: string;
   pulse: number;
@@ -96,7 +155,7 @@ function reduce(s: JarvisRunState, e: JarvisEvent, nextId: () => number): Jarvis
     case "agent.status":
       return bump({ active: e.node }, { node: e.node, kind: "status", text: e.status, at: e.at });
     case "agent.tool":
-      return bump({}, { node: e.node, kind: "tool", text: `${e.tool} · ${e.detail}`, at: e.at });
+      return bump({}, { node: e.node, kind: "tool", text: humanizeTool(e.tool) + (e.detail ? ` · ${e.detail}` : ""), at: e.at });
     case "agent.output":
       return bump(
         { phases: { ...s.phases, [e.node]: "done" } },
@@ -108,7 +167,9 @@ function reduce(s: JarvisRunState, e: JarvisEvent, nextId: () => number): Jarvis
         { node: e.from, kind: "report", text: `${node(e.from).title} → ${node(e.to).title}: ${e.summary}`, at: e.at }
       );
     case "artifact":
-      return e.kind === "leads" ? bump({ leads: e.data }) : bump({ artifact: e.data });
+      if (e.kind === "leads") return bump({ leads: e.data });
+      if (e.kind === "newsletter") return bump({ newsletter: e.data });
+      return bump({ artifact: e.data });
     case "response":
       return bump({ response: e.markdown });
     case "run.complete":
@@ -133,6 +194,7 @@ export function useJarvisRun() {
     feedId.current = 0;
     const nextId = () => feedId.current++;
     setState({ ...EMPTY, running: true, instruction });
+    sounds.send(); // "sent" cue — a real user gesture, so it also unlocks Web Audio
 
     try {
       const res = await fetch("/api/jarvis/run", {
@@ -152,7 +214,10 @@ export function useJarvisRun() {
         buffer += decoder.decode(value, { stream: true });
         const { events, rest } = drainEvents(buffer);
         buffer = rest;
-        for (const e of events) setState((s) => reduce(s, e, nextId));
+        for (const e of events) {
+          setState((s) => reduce(s, e, nextId));
+          playEventSound(e);
+        }
       }
     } catch (err) {
       if (!ac.signal.aborted) {

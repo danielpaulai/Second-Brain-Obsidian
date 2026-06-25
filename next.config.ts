@@ -29,7 +29,14 @@ const nextConfig: NextConfig = {
       "node_modules/@huggingface/transformers/**",
     ],
   },
-  webpack: (config) => {
+  // Keep compiled pages in memory far longer so the dev server doesn't dispose +
+  // recompile them constantly (each recompile rewrites the page manifests, which is
+  // when the ".next/.../app-build-manifest.json" race tends to bite).
+  onDemandEntries: {
+    maxInactiveAge: 60 * 60 * 1000,
+    pagesBufferLength: 10,
+  },
+  webpack: (config, { dev }) => {
     // transformers.js loads ONNX runtime — exclude its node-side fs/sharp
     // imports from the client bundle so it works in the browser.
     config.resolve.alias = {
@@ -37,6 +44,13 @@ const nextConfig: NextConfig = {
       sharp: false,
       "onnxruntime-node$": false,
     };
+    // DEV: use an in-memory webpack cache instead of the on-disk PackFileCache.
+    // The filesystem cache re-serializes the big bundled strings (output.json ~1MB,
+    // the inlined vault/knowledge docs) on every HMR and races Next's manifest
+    // writes — the cause of the intermittent `_buildManifest.js.tmp` /
+    // `app-build-manifest.json` ENOENT errors. Memory cache is race-free; the only
+    // cost is a slightly slower cold start (no cache persisted between restarts).
+    if (dev) config.cache = { type: "memory" };
     return config;
   },
 };

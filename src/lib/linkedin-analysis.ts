@@ -9,7 +9,7 @@ import type { LinkedInScope } from "./linkedin-scope";
  * the top/bottom posts' content for the LLM narrative. Pure read, cached per process.
  */
 
-type RawPost = {
+export type RawPost = {
   content?: string;
   engagement?: { comments?: number; shares?: number; reactions?: { type: string; count: number }[] };
   postedAt?: { date?: string; postedAgoShort?: string };
@@ -99,9 +99,11 @@ function buildSeries(posts: RawPost[]): LIMonthly[] {
 }
 
 /** Compute everything from the posts in `scope`. Relative windows are anchored to the LATEST post
- *  date (not the wall clock), so "last month" / "last 5 posts" always land on real data. */
-export function computeLinkedInStats(scope?: LinkedInScope): LinkedInStats {
-  const all = load();
+ *  date (not the wall clock), so "last month" / "last 5 posts" always land on real data.
+ *  Pass `postsOverride` (e.g. freshly scraped posts) to analyse a live set instead of output.json;
+ *  the scraped items share output.json's shape (both come from harvestapi/linkedin-profile-posts). */
+export function computeLinkedInStats(scope?: LinkedInScope, postsOverride?: RawPost[]): LinkedInStats {
+  const all = postsOverride && postsOverride.length ? postsOverride : load();
   const allTimes = all.map(dateMs).filter(Number.isFinite);
   const refMs = allTimes.length ? Math.max(...allTimes) : Date.now();
 

@@ -7,9 +7,11 @@ import { NO_EMDASH_RULE, emDashTransform } from "@/lib/sanitize";
 import { callZapierTool, executeZapierAction, zapierMcpConfigured } from "@/lib/zapier-mcp";
 import { searchVault, readVaultNote } from "@/lib/brain-vault";
 import { scrapeLinkedInProfile } from "@/lib/lead-scraper";
+import { buildOwnLinkedInPostsReport } from "@/lib/linkedin-live";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Live post-scraping (Apify) + a reasoning narrative can run ~1-2 min; give the turn room.
+export const maxDuration = 300;
 
 function pickModel() {
   const id = process.env.AI_MODEL || "anthropic/claude-opus-4-8";
@@ -45,7 +47,10 @@ APPROVALS — be decisive, not annoying:
 HOW TO WORK
 - To act on an app, call \`listApps\` once to get its \`selected_api\`, then \`listActions(selected_api)\` to find the exact action key.
 - For anything that only READS, call \`readData\` directly (Zapier resolves params from your natural-language \`instructions\`).
-- ANYTHING LinkedIn — looking someone up, scraping a profile, researching a person/prospect — ALWAYS call \`linkedinProfile(query)\` IMMEDIATELY as your FIRST step. It scrapes via Apify and returns the FULL profile. There is NO LinkedIn app in the MCP list (it's hidden on purpose), so NEVER call \`listApps\`/\`listActions\`/\`readData\` for LinkedIn — go straight to \`linkedinProfile\`. The result renders as a rich report card automatically, so do NOT re-list every field in your text; add only a short useful takeaway or answer their specific question.
+- LinkedIn splits into TWO tools — pick by whose LinkedIn it is, and call it IMMEDIATELY as your FIRST step (there is NO LinkedIn app in the MCP list — it's hidden on purpose — so NEVER call \`listApps\`/\`listActions\`/\`readData\` for LinkedIn):
+  - The FOUNDER'S OWN posts / performance / "what should I post next" — anything about THEIR own LinkedIn content ("scrape my last 20 posts", "how did my posts do last month", "analyse my linkedin", "what should I post next") — call \`linkedinPostsReport(request)\` with their full ask (keep the window/count). It scrapes their own posts live via Apify and returns a full report with charts.
+  - ANOTHER person — looking someone up, researching a prospect ("look up Jane Doe", "find this prospect on LinkedIn") — call \`linkedinProfile(query)\`. It scrapes via Apify and returns that person's FULL profile.
+  Both render as rich cards automatically, so do NOT re-list every field/number in your text — add only a short useful takeaway or answer their specific question.
 - Use \`searchBrain\` / \`readBrainNote\` for context from the founder's own notes.
 
 BE EFFICIENT — make the FEWEST tool calls that fully answer the request, in a sensible order:
@@ -128,6 +133,16 @@ function buildTools() {
         query: z.string().describe("the person's name, ideally with company or title for precision, e.g. 'Jane Doe, Head of Growth at Acme'"),
       }),
       execute: async ({ query }) => scrapeLinkedInProfile(query),
+    }),
+    linkedinPostsReport: tool({
+      description:
+        "Scrape the FOUNDER'S OWN recent LinkedIn POSTS (their authored content) and return a full analytics REPORT: KPIs, engagement-over-time, top posts, reaction mix, plus a strategic narrative with concrete post ideas. Use whenever they ask to analyse / scrape / report on THEIR OWN posts or LinkedIn performance ('scrape my last 20 posts', 'how did my posts do last month', 'analyse my linkedin', 'what should I post next'). This is the founder's OWN profile only — for ANOTHER person use linkedinProfile. The result renders as a rich report with charts automatically.",
+      parameters: z.object({
+        request: z
+          .string()
+          .describe("the user's full ask, verbatim, including the time window or post count, e.g. 'my last 20 posts' or 'how my posts performed last month'"),
+      }),
+      execute: async ({ request }) => buildOwnLinkedInPostsReport(request),
     }),
     // HUMAN-IN-THE-LOOP: no execute() — the client renders an approval card, runs
     // it on approval via /api/dashboard/agent/execute, and returns the result.

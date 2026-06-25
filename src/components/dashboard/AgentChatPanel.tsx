@@ -5,6 +5,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import KronosOrb from "@/components/jarvis/KronosOrb";
 import LinkedInProfileReport from "./LinkedInProfileReport";
+import LinkedInPostsReport from "./LinkedInPostsReport";
 import { BrandMark } from "./BrandMark";
 import { BRANDS, brandKey } from "@/lib/brand-marks";
 import { useOperatorActivity } from "@/lib/operator-activity";
@@ -34,10 +35,10 @@ const RISK: Record<string, { label: string; color: string; bg: string }> = {
 };
 
 const SUGGESTIONS = [
+  "Analyze my last 20 LinkedIn posts",
   "Summarize what my team is discussing in Slack",
   "What's on my calendar this week?",
   "Draft a follow-up email to my last call",
-  "Look up Daniel Paul on LinkedIn",
 ];
 
 /* ------- humanized tool labels (no raw tech names) ------- */
@@ -59,6 +60,8 @@ function humanLabel(name: string, args: Args, done: boolean): string {
       return `${done ? "Read note" : "Reading note"}${a.title ? `: ${String(a.title)}` : ""}`;
     case "linkedinProfile":
       return `${done ? "Found profile" : "Looking up profile"}${a.query ? `: ${String(a.query)}` : ""}`;
+    case "linkedinPostsReport":
+      return done ? "Analyzed your LinkedIn posts" : "Scraping your LinkedIn posts";
     default:
       return done ? "Done" : "Working";
   }
@@ -138,7 +141,7 @@ export default function AgentChatPanel() {
     for (const p of last.parts ?? []) {
       const inv = p.toolInvocation;
       if (p.type !== "tool-invocation" || !inv || inv.state === "result") continue;
-      const b = brandKey(String(inv.args?.selected_api || "")) || (inv.toolName === "linkedinProfile" ? "linkedin" : null);
+      const b = brandKey(String(inv.args?.selected_api || "")) || (inv.toolName === "linkedinProfile" || inv.toolName === "linkedinPostsReport" ? "linkedin" : null);
       if (b) brands.add(b);
     }
     setActive([...brands]);
@@ -376,6 +379,8 @@ const PartView = memo(
     if (inv.toolName === "proposeAction") return <ApprovalCard inv={inv} busy={busy === inv.toolCallId} onApprove={onApprove} onReject={onReject} />;
     if (inv.toolName === "linkedinProfile" && inv.state === "result")
       return <LinkedInProfileReport data={inv.result as Parameters<typeof LinkedInProfileReport>[0]["data"]} />;
+    if (inv.toolName === "linkedinPostsReport" && inv.state === "result")
+      return <LinkedInPostsReport data={inv.result as Parameters<typeof LinkedInPostsReport>[0]["data"]} />;
     // a read with actual rows → branded source card; an empty read → just a chip (no empty card)
     if (inv.toolName === "readData" && inv.state === "result") {
       const recs = (inv.result as { records?: unknown[] })?.records;
@@ -401,7 +406,7 @@ function TextBlock({ text }: { text: string }) {
 
 function ToolChip({ inv }: { inv: Inv }) {
   const done = inv.state === "result";
-  const brand = brandKey(String(inv.args?.selected_api || "")) || (inv.toolName === "linkedinProfile" ? "linkedin" : null);
+  const brand = brandKey(String(inv.args?.selected_api || "")) || (inv.toolName === "linkedinProfile" || inv.toolName === "linkedinPostsReport" ? "linkedin" : null);
   const isBrain = inv.toolName === "searchBrain" || inv.toolName === "readBrainNote";
   return (
     <div className="flex items-center gap-2 px-1 text-[11.5px] text-white/50">
